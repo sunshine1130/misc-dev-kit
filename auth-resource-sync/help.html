@@ -84,10 +84,62 @@
 </head>
 <body>
   <h1>Auth Resource Sync</h1>
-  <p>将权限资源（路由目录/菜单/按钮/字段权限/数据权限）从一个环境同步到另一个环境。典型场景：开发环境 → 测试环境。</p>
+  <p>面板有两个能力，顶部页签切换：</p>
+  <ul>
+    <li><strong>📦 资源同步</strong>：把权限资源（路由目录/菜单/按钮/字段权限/数据权限）从一个环境同步到另一个环境。典型场景：开发环境 → 测试环境。</li>
+    <li><strong>👤 用户权限同步</strong>：把某个账号的「应用 + 角色」同步到另一个账号（同环境模板复制），或跨环境同步到另一个环境的同账号。</li>
+  </ul>
 
-  <!-- ====== 快速开始 ====== -->
-  <h2>快速开始</h2>
+  <!-- ====== 用户权限同步 ====== -->
+  <h2>用户权限同步（应用 + 角色）</h2>
+  <p>用于两件事：① 跨环境 —— dev 的 <code>apsTest</code> 有某个角色，想在 test 配成一样；
+     ② 同环境 —— 把自己的账号改成与另一个账号完全一致。面板顶部切到 <code>👤 用户权限同步</code>。</p>
+
+  <div class="warn">
+    <strong>本功能会修改账号权限，执行前务必核对差异预览。</strong>
+    插件严格照抄页面「编辑用户」的提交行为：<strong>只改应用与角色</strong>，
+    基础信息（姓名/部门/手机号/邮箱）与数据权限/字段权限一律不动。
+  </div>
+
+  <h3>模式一：跨环境同步</h3>
+  <ol>
+    <li>在<strong>源环境</strong>打开用户管理页 → 模式选 <code>🌐 跨环境同步</code> → 填账号 → <code>采集源账号</code></li>
+    <li>切到<strong>目标环境</strong>的同一页面 → 填目标账号 → <code>采集目标账号</code></li>
+    <li>两个都采集完会自动算差异，核对「将移除」的条目</li>
+    <li>点 <code>⚡ 执行同步</code> 并确认</li>
+  </ol>
+
+  <div class="note">
+    <strong>为什么不能直接照抄 ID：</strong>各环境是独立数据库，同一个角色在 dev 和 test 里的 ID 完全不同。
+    插件按<strong>应用编码（appCode）</strong>与<strong>角色编码（appCode + roleCode）</strong>到目标环境现场查 ID。
+    因此两个环境的编码必须一致；目标环境找不到相同编码时，该条目会列进「无法映射」并<strong>跳过</strong> —— 插件不会按名称猜。
+  </div>
+
+  <h3>模式二：同环境模板复制</h3>
+  <ol>
+    <li>模式选 <code>📋 同环境模板复制</code></li>
+    <li>「参照账号」填要照抄的账号 → <code>采集源账号</code></li>
+    <li>「目标账号」填要被修改的账号 → <code>采集目标账号</code></li>
+    <li>核对差异后 <code>⚡ 执行同步</code></li>
+  </ol>
+  <p class="dim">同一环境内 ID 可直接比较、无需编码映射，所以比跨环境更可靠。</p>
+
+  <h3>差异预览怎么看</h3>
+  <table>
+    <tr><th>标记</th><th>含义</th></tr>
+    <tr><td class="green">✚ 新增</td><td>执行后目标账号会获得该应用/角色</td></tr>
+    <tr><td style="color:#ff4d4f;font-weight:600">✖ 移除</td><td>执行后会失去该应用/角色 —— <strong>最需要核对的部分</strong></td></tr>
+    <tr><td class="yellow">⚠ 无法映射</td><td>目标环境无相同编码，将被跳过，需人工在页面上处理</td></tr>
+    <tr><td class="green">✔ 权限已完全一致</td><td>无需写入；执行按钮置灰，不会发出任何请求</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>执行后会自动回读校验</strong>：重新查询目标账号，确认应用与角色确实写成预期值，
+    并顺带确认基础信息未被改动。校验不通过会在日志里标红 —— 不要只看「提交成功」。
+  </div>
+
+  <!-- ====== 资源同步（快速开始） ====== -->
+  <h2>资源同步：快速开始</h2>
 
   <div class="step">
     <span class="step-num">1</span>
@@ -271,6 +323,6 @@
   </div>
 
   <hr>
-  <p class="dim" style="text-align:center;font-size:12px">Auth Resource Sync v1.0 · Chrome Extension · 权限资源跨环境同步工具</p>
+  <p class="dim" style="text-align:center;font-size:12px">Auth Resource Sync v1.1 · Chrome Extension · 权限资源与用户权限跨环境同步工具</p>
 </body>
 </html>

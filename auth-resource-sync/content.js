@@ -145,6 +145,9 @@
         syncTasks = d.syncTasks || [];
         singleTasks = d.singleTasks || [];
         syncMode = d.syncMode || 'batch';
+        userSyncMode = d.userSyncMode || 'cross-env';
+        srcSnapshot = d.srcSnapshot || null;
+        tgtSnapshot = d.tgtSnapshot || null;
         log('[Auth Sync] Loaded: dev ' + countNodes(devTree) + ' nodes, test ' + countNodes(testTree) + ' nodes');
         return true;
       }
@@ -166,6 +169,9 @@
         syncTasks: syncTasks,
         singleTasks: singleTasks,
         syncMode: syncMode,
+        userSyncMode: userSyncMode,
+        srcSnapshot: srcSnapshot,
+        tgtSnapshot: tgtSnapshot,
         lastUpdated: Date.now()
       };
       await chrome.storage.local.set(obj);
@@ -182,6 +188,10 @@
     syncTasks = [];
     singleTasks = [];
     syncMode = 'batch';
+    userSyncMode = 'cross-env';
+    srcSnapshot = null;
+    tgtSnapshot = null;
+    _userPlan = null;
     syncLog = [];
     selectedTestNodeId = null;
     syncStatus = 'idle';
@@ -200,6 +210,9 @@
     syncTasks = newVal.syncTasks || [];
     singleTasks = newVal.singleTasks || [];
     syncMode = newVal.syncMode || 'batch';
+    userSyncMode = newVal.userSyncMode || 'cross-env';
+    srcSnapshot = newVal.srcSnapshot || null;
+    tgtSnapshot = newVal.tgtSnapshot || null;
     refreshPanel();
   });
 
@@ -1087,6 +1100,369 @@
   }
   function log() { console.log.apply(console, arguments); }
 
+  // ==================== 用户权限同步（应用 + 角色） ====================
+  //
+  // 与资源同步的区别：资源同步搬"资源树"（目录/菜单/按钮/字段/数据），
+  // 本功能搬"某个账号的应用+角色绑定"。两者共用同一套底层能力
+  // （页面注入代理、Admin-Token、CALL_API 通道），所以不需要任何新增后端接口。
+  //
+  // 三条不可动摇的约束（推导过程见 perm-map.js 顶部注释与设计稿）：
+  //   1. 跨环境 ID 不可复用 —— 只能按 appCode / appCode+roleCode 映射，绝不按名称近似匹配。
+  //   2. 写操作必须 read-modify-write，且只提交页面 formState 会提交的字段。
+  //      原因：editUser 是全量表单提交，少传字段会被当成置空。
+  //   3. 权限已一致时不发任何写请求（幂等）。执行后必须回读校验，不能只看接口 200。
+
+  var userSyncMode = 'cross-env';   // 'cross-env' 跨环境同步 | 'same-env' 同环境模板复制
+  var srcSnapshot = null;           // 源（或参照）账号快照
+  var tgtSnapshot = null;           // 目标账号快照
+  var _userPlan = null;             // 最近一次算出的执行计划
+  var _userBusy = false;
+
+  var USER_LIST_PAGE_SIZE = 100;
+
+  /**
+   * 调一个 /auth2 接口并返回其 data；失败抛出带后端 msg 的错误。
+   * headers 用于透传页面自己会带的自定义头 —— 必须与页面一致，
+   * 否则会撞上后端的数据权限校验（如 listByPage 缺 page_key 直接报错）。
+   */
+  async function apiCall(path, data, headers) {
+    var apiBase = await getApiBaseOrigin();
+    var resp = await sendToInject({
+      type: 'CALL_API',
+      apiPath: apiBase + path,
+      data: data,
+      token: getToken(),
+      headers: headers || null
+    });
+    if (!resp || !resp.success) throw new Error((resp && resp.error) || '请求失败');
+    var result = resp.data;
+    if (!result) throw new Error('响应为空');
+    if (result.code !== 200) throw new Error(result.msg || ('接口返回 code=' + result.code));
+    return result.data;
+  }
+
+  // 页面 getUserList 就是这么带的（auth-web/src/api/userManagement/index.ts:9-22），
+  // 缺了后端会回「无数据权限，页面key不能为空」。
+  var USER_PAGE_HEADERS = { page_key: 'auth2:userManagement' };
+
+  /**
+   * 按账号名查 userId。
+   * 先用 userName 条件查（后端支持则一次命中），再翻页兜底 —— 不假设后端真的过滤了条件。
+   */
+  async function findUserIdByAccount(account) {
+    var wanted = String(account).trim().toLowerCase();
+    var seen = 0;
+    for (var page = 1; page <= 20; page++) {
+      var data = await apiCall('/auth2/user/listByPage', {
+        pageNum: page,
+        pageSize: USER_LIST_PAGE_SIZE,
+        userName: account
+      }, USER_PAGE_HEADERS);
+      var rows = (data && (data.records || data.list || data.rows)) || (Array.isArray(data) ? data : []);
+      if (!rows.length) break;
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].userName || '').toLowerCase() === wanted) {
+          return rows[i].userId || rows[i].id;
+        }
+      }
+      seen += rows.length;
+      var total = data && data.total;
+      if (total !== undefined && seen >= total) break;
+    }
+    throw new Error('当前环境找不到账号「' + account + '」');
+  }
+
+  /**
+   * 采集一个账号的权限快照：用户详情 + 本环境的应用/角色枚举。
+   * 为什么要连枚举一起存：跨环境时源环境的 id 在目标环境无意义，
+   * 必须靠源快照里的 id→code 映射才能翻译过去。
+   */
+  async function captureUserSnapshot(which) {
+    var inputEl = document.getElementById(which === 'src' ? 'as-src-account' : 'as-tgt-account');
+    var account = inputEl ? String(inputEl.value || '').trim() : '';
+    var roleName = which === 'src' ? (userSyncMode === 'same-env' ? '参照' : '源') : '目标';
+    if (!account) {
+      addLog('[用户同步] 请先输入' + roleName + '账号', 'warn');
+      refreshPanel();
+      return;
+    }
+
+    _userBusy = true; refreshPanel();
+    try {
+      addLog('[用户同步] 正在采集 ' + roleName + '账号 ' + account + ' ...');
+      var userId = await findUserIdByAccount(account);
+      var detail = await apiCall('/auth2/user/selectUserDetail', { userId: userId });
+      var apps = await apiCall('/auth2/app/selectApp', {});
+      // ids 传空数组时后端返回全部角色（实测 94 条），一次拿全，省掉按应用逐个查
+      var roles = await apiCall('/auth2/role/selectAppRole', { ids: [] });
+      var apiBase = await getApiBaseOrigin();
+
+      var snap = {
+        env: { host: window.location.hostname, apiBase: apiBase },
+        account: account,
+        userId: userId,
+        apps: apps || [],
+        roles: roles || [],
+        appIdList: (detail && detail.appIdList) || [],
+        roleIdList: (detail && detail.roleIdList) || [],
+        detail: detail || {},
+        capturedAt: Date.now()
+      };
+      if (which === 'src') srcSnapshot = snap; else tgtSnapshot = snap;
+
+      addLog('[用户同步] 已采集 ' + account + '：应用 ' + snap.appIdList.length +
+             ' 个 / 角色 ' + snap.roleIdList.length + ' 个（本环境可选 ' +
+             snap.apps.length + ' 应用 / ' + snap.roles.length + ' 角色）', 'success');
+      _userPlan = null;
+      await saveStoredData();
+      refreshPanel();
+      if (srcSnapshot && tgtSnapshot) renderUserPreview();   // 两边齐了自动算差异
+    } catch (e) {
+      addLog('[用户同步] 采集失败：' + e.message, 'error');
+      refreshPanel();
+    } finally {
+      _userBusy = false;
+      refreshPanel();
+    }
+  }
+
+  /** 把应用/角色 id 翻译成可读标签（用采集到的枚举） */
+  function labelOfApp(snap, id) {
+    var hit = (snap.apps || []).filter(function (x) { return String(x.id) === String(id); })[0];
+    return hit ? (hit.appCode + (hit.appName ? '(' + hit.appName + ')' : '')) : ('id=' + id);
+  }
+  function labelOfRole(snap, id) {
+    var hit = (snap.roles || []).filter(function (x) { return String(x.id) === String(id); })[0];
+    if (!hit) return 'id=' + id;
+    if (hit.roleCode) return hit.roleCode + (hit.roleName ? '(' + hit.roleName + ')' : '');
+    return hit.roleName || ('id=' + id);
+  }
+
+  /** 算差异并渲染预览。这是执行前的最后一道人工确认关卡。 */
+  function renderUserPreview() {
+    var box = document.getElementById('as-user-preview');
+    if (!box) return;
+
+    if (!srcSnapshot || !tgtSnapshot) {
+      box.innerHTML = '<div class="as-pv-same">源账号与目标账号都采集后，这里会显示差异。</div>';
+      _userPlan = null;
+      refreshPanel();
+      return;
+    }
+
+    var plan = AuthPermMap.plan({
+      source: srcSnapshot,
+      target: { apps: tgtSnapshot.apps, roles: tgtSnapshot.roles },
+      currentDetail: tgtSnapshot.detail,
+      mode: userSyncMode
+    });
+    _userPlan = plan;
+
+    var html = '';
+    if (plan.noop) {
+      // 幂等：完全一致时明确告知不会发任何写请求
+      html += '<div class="as-pv-noop">\u2714 权限已完全一致，无需写入</div>';
+    } else {
+      html += diffBlock('应用', plan.appDiff, tgtSnapshot, labelOfApp);
+      html += diffBlock('角色', plan.roleDiff, tgtSnapshot, labelOfRole);
+    }
+    if (plan.unresolved.length) {
+      html += '<div class="as-pv-title">\u26A0 无法映射（将跳过，需人工处理）</div>';
+      plan.unresolved.forEach(function (u) {
+        var who = u.kind === 'app'
+          ? ('应用 ' + (u.appCode || u.code || ''))
+          : ('角色 ' + (u.roleCode || u.roleName || u.code || '') + (u.appCode ? ' @ ' + u.appCode : ''));
+        html += '<div class="as-pv-unres">\u2022 ' + escHtml(who) + ' —— ' + escHtml(u.reason) + '</div>';
+      });
+    }
+    if (plan.warnings.length) {
+      html += '<div class="as-pv-title">\u26A0 数据异常提醒</div>';
+      plan.warnings.forEach(function (w) {
+        html += '<div class="as-pv-unres">\u2022 ' + escHtml(w.reason) + '</div>';
+      });
+    }
+    box.innerHTML = html;
+    refreshPanel();
+  }
+
+  function diffBlock(title, diff, snap, labeler) {
+    var h = '<div class="as-pv-title">' + title + '（+' + diff.added.length +
+            ' / -' + diff.removed.length + ' / =' + diff.same.length + '）</div>';
+    diff.added.forEach(function (id) {
+      h += '<div class="as-pv-add">\u271A 新增&nbsp;&nbsp;' + escHtml(labeler(snap, id)) + '</div>';
+    });
+    diff.removed.forEach(function (id) {
+      h += '<div class="as-pv-del">\u2716 移除&nbsp;&nbsp;' + escHtml(labeler(snap, id)) + '</div>';
+    });
+    if (!diff.added.length && !diff.removed.length) {
+      h += '<div class="as-pv-same">= 全部一致</div>';
+    }
+    return h;
+  }
+
+  /**
+   * 执行同步：read-modify-write → editUser → 回读校验。
+   * 回读这一步不能省：接口返回 200 不等于权限真的写对了。
+   */
+  async function executeUserSync() {
+    if (!_userPlan) { addLog('[用户同步] 请先刷新差异预览', 'warn'); refreshPanel(); return; }
+    if (!tgtSnapshot) return;
+    if (_userPlan.noop) { addLog('[用户同步] 权限已一致，未发送任何写请求', 'success'); refreshPanel(); return; }
+
+    var removedApps = _userPlan.appDiff.removed.length;
+    var removedRoles = _userPlan.roleDiff.removed.length;
+    var msg = '确认把账号「' + tgtSnapshot.account + '」的应用与角色同步为源账号的配置？\n\n' +
+              '应用：新增 ' + _userPlan.appDiff.added.length + ' / 移除 ' + removedApps + '\n' +
+              '角色：新增 ' + _userPlan.roleDiff.added.length + ' / 移除 ' + removedRoles + '\n';
+    if (removedApps || removedRoles) {
+      msg += '\n⚠ 将会移除 ' + removedApps + ' 个应用、' + removedRoles + ' 个角色，请先核对预览。\n';
+    }
+    msg += '\n用户基础信息（姓名/部门/手机号/邮箱等）不会改动。';
+    if (!window.confirm(msg)) { addLog('[用户同步] 已取消执行', 'warn'); return; }
+
+    _userBusy = true; refreshPanel();
+    try {
+      // 提交前重新拉一次目标用户详情：预览与执行之间目标数据可能已被页面改动
+      var fresh = await apiCall('/auth2/user/selectUserDetail', { userId: tgtSnapshot.userId });
+      var payload = AuthPermMap.buildEditPayload(fresh, _userPlan.appIdList, _userPlan.roleIdList);
+      await apiCall('/auth2/user/editUser', payload);
+      addLog('[用户同步] 已提交 editUser（应用 ' + payload.appIdList.length +
+             ' / 角色 ' + payload.roleIdList.length + '）', 'success');
+
+      var after = await apiCall('/auth2/user/selectUserDetail', { userId: tgtSnapshot.userId });
+      var wantApps = _userPlan.appIdList.slice().sort().join(',');
+      var wantRoles = _userPlan.roleIdList.slice().sort().join(',');
+      var gotApps = (after.appIdList || []).slice().sort().join(',');
+      var gotRoles = (after.roleIdList || []).slice().sort().join(',');
+      if (wantApps === gotApps && wantRoles === gotRoles) {
+        addLog('[用户同步] \u2714 回读校验通过：应用 ' + (after.appIdList || []).length +
+               ' 个 / 角色 ' + (after.roleIdList || []).length + ' 个', 'success');
+      } else {
+        addLog('[用户同步] \u2716 回读不一致！期望应用[' + wantApps + '] 实际[' + gotApps +
+               ']；期望角色[' + wantRoles + '] 实际[' + gotRoles + ']', 'error');
+      }
+
+      // 顺带自检基础信息有没有被这次提交改掉（read-modify-write 的正确性）
+      var baseKeys = ['userName', 'nickName', 'sex', 'userType', 'deptId', 'phonenumber', 'email', 'partner'];
+      var changed = baseKeys.filter(function (k) {
+        return JSON.stringify(fresh[k]) !== JSON.stringify(after[k]);
+      });
+      if (changed.length) addLog('[用户同步] \u26A0 基础信息发生变化：' + changed.join(', '), 'warn');
+
+      tgtSnapshot.detail = after;
+      tgtSnapshot.appIdList = after.appIdList || [];
+      tgtSnapshot.roleIdList = after.roleIdList || [];
+      await saveStoredData();
+      _userPlan = null;
+      renderUserPreview();
+    } catch (e) {
+      addLog('[用户同步] 执行失败：' + e.message, 'error');
+    } finally {
+      _userBusy = false;
+      refreshPanel();
+    }
+  }
+
+  function resetUserSync(alsoResetMode) {
+    srcSnapshot = null;
+    tgtSnapshot = null;
+    _userPlan = null;
+    if (alsoResetMode) userSyncMode = 'cross-env';
+    var a = document.getElementById('as-src-account'); if (a) a.value = '';
+    var b = document.getElementById('as-tgt-account'); if (b) b.value = '';
+    var p = document.getElementById('as-user-preview'); if (p) p.innerHTML = '';
+    saveStoredData();
+    refreshPanel();
+  }
+
+  function switchUserMode(mode) {
+    userSyncMode = (mode === 'same-env') ? 'same-env' : 'cross-env';
+    _userPlan = null;
+    saveStoredData();
+    if (srcSnapshot && tgtSnapshot) renderUserPreview(); else refreshPanel();
+  }
+
+  function switchTopTab(tab) {
+    var isUser = tab === 'user';
+    var pres = document.getElementById('as-pane-res');
+    var puser = document.getElementById('as-pane-user');
+    if (pres) pres.style.display = isUser ? 'none' : '';
+    if (puser) puser.style.display = isUser ? '' : 'none';
+    var t1 = document.getElementById('as-tab-res');
+    var t2 = document.getElementById('as-tab-user');
+    if (t1) t1.classList.toggle('as-tab-active', !isUser);
+    if (t2) t2.classList.toggle('as-tab-active', isUser);
+    if (isUser) renderUserPreview();
+  }
+
+  /** 渲染用户权限同步面板的状态（快照摘要 + 按钮可用性 + 模式高亮） */
+  function renderUserPane() {
+    var envEl = document.getElementById('as-user-env');
+    if (envEl) envEl.textContent = window.location.hostname;
+
+    var m1 = document.getElementById('as-umode-cross');
+    var m2 = document.getElementById('as-umode-same');
+    if (m1) {
+      m1.classList.toggle('as-mode-active', userSyncMode === 'cross-env');
+      m1.style.background = userSyncMode === 'cross-env' ? '#1890ff' : '';
+      m1.style.color = userSyncMode === 'cross-env' ? '#fff' : '#666';
+    }
+    if (m2) {
+      m2.classList.toggle('as-mode-active', userSyncMode === 'same-env');
+      m2.style.background = userSyncMode === 'same-env' ? '#1890ff' : '';
+      m2.style.color = userSyncMode === 'same-env' ? '#fff' : '#666';
+    }
+
+    var lbl = document.getElementById('as-src-label');
+    if (lbl) lbl.textContent = userSyncMode === 'same-env' ? '参照账号:' : '源账号:';
+
+    var snapEl = document.getElementById('as-user-snap');
+    if (snapEl) {
+      var lines = [
+        snapshotLine(userSyncMode === 'same-env' ? '参照' : '源', srcSnapshot),
+        snapshotLine('目标', tgtSnapshot)
+      ];
+      // 跨环境模式却两个快照同环境 —— 大概率是忘了切环境，提前提醒
+      if (srcSnapshot && tgtSnapshot && userSyncMode === 'cross-env' &&
+          srcSnapshot.env.host === tgtSnapshot.env.host) {
+        lines.push('<span class="as-snap-warn">\u26A0 源与目标在同一环境（' +
+                   escHtml(srcSnapshot.env.host) + '），跨环境模式建议改用"同环境模板复制"</span>');
+      }
+      snapEl.innerHTML = lines.join('\n');
+    }
+
+    var execBtn = document.getElementById('as-user-exec');
+    if (execBtn) {
+      // 只有"算出了差异且确实需要写"时才允许执行；处理中一律禁用
+      execBtn.disabled = _userBusy || !_userPlan || _userPlan.noop;
+      if (_userBusy) {
+        execBtn.textContent = '\u23F3 处理中...';
+      } else if (_userPlan && !_userPlan.noop) {
+        var add = _userPlan.appDiff.added.length + _userPlan.roleDiff.added.length;
+        var del = _userPlan.appDiff.removed.length + _userPlan.roleDiff.removed.length;
+        execBtn.textContent = '\u26A1 执行同步 (+' + add + ' / -' + del + ')';
+      } else {
+        execBtn.textContent = '\u26A1 执行同步';
+      }
+    }
+
+    var cap1 = document.getElementById('as-capture-src');
+    var cap2 = document.getElementById('as-capture-tgt');
+    if (cap1) cap1.disabled = _userBusy;
+    if (cap2) cap2.disabled = _userBusy;
+  }
+
+  function snapshotLine(role, snap) {
+    if (!snap) return role + '：<span class="as-snap-warn">未采集</span>';
+    var mins = Math.round((Date.now() - snap.capturedAt) / 60000);
+    var stale = mins > 1440
+      ? ' <span class="as-snap-warn">(采集于 ' + Math.round(mins / 60) + ' 小时前，建议重新采集)</span>'
+      : '';
+    return role + '：<b>' + escHtml(snap.account) + '</b> @ ' + escHtml(snap.env.host) +
+           '　应用 ' + snap.appIdList.length + ' / 角色 ' + snap.roleIdList.length +
+           '　<span class="as-snap-ok">已采集</span>' + stale;
+  }
+
   // ==================== 面板 UI ====================
   function createFloatingPanel() {
     try {
@@ -1101,7 +1477,6 @@
           // 拖拽手柄（左侧）
           '<div id="as-resize-handle" class="as-resize-handle"></div>' +
           // header
-          // header
           '<div class="as-header">' +
             '<span>\uD83D\uDD17 Auth Resource Sync</span>' +
             '<div style="display:flex;gap:4px">' +
@@ -1109,8 +1484,13 @@
               '<span id="as-close" class="as-close">\u2715</span>' +
             '</div>' +
           '</div>' +
-          // 内容区
-          '<div class="as-content">' +
+          // 顶层能力切换：资源同步（原有） / 用户权限同步（新增）
+          '<div class="as-tabs">' +
+            '<button id="as-tab-res" class="as-tab as-tab-active">\uD83D\uDCE6 资源同步</button>' +
+            '<button id="as-tab-user" class="as-tab">\uD83D\uDC64 用户权限同步</button>' +
+          '</div>' +
+          // 内容区：资源同步
+          '<div class="as-content as-pane" id="as-pane-res">' +
             // ── 工具栏 ──
             '<div class="as-toolbar">' +
               '<div class="as-toolbar-row">' +
@@ -1173,15 +1553,49 @@
                 '</div>' +
               '</div>' +
             '</div>' +
-            // ── 日志 ──
-            '<div class="as-log-wrap" id="as-log-wrap">' +
-              '<div class="as-log-title" id="as-log-toggle">' +
-                '<span>\uD83D\uDCCB 日志</span>' +
-                '<span id="as-log-count" style="margin-left:8px"></span>' +
-                '<span style="margin-left:auto;font-size:10px">\u25BC 展开</span>' +
+          '</div>' +
+          // 内容区：用户权限同步（新增）
+          // 设计要点：源/目标两个账号各自"采集"，采集即把该环境的
+          // selectUserDetail + selectApp + selectAppRole 快照存下来。
+          // 跨环境时切到目标环境的页面再采集目标账号 —— 这样两个环境的
+          // token 与 API 基址都由各自页面提供，插件不需要跨域凭据。
+          '<div class="as-content as-pane" id="as-pane-user" style="display:none">' +
+            '<div class="as-toolbar">' +
+              '<div class="as-toolbar-row">' +
+                '<span class="as-label">模式:</span>' +
+                '<button id="as-umode-cross" class="as-btn as-btn-xs as-mode-btn" title="跨环境：在源环境采集账号权限，切到目标环境写入。两个环境的应用/角色 ID 不同，按编码映射。">\uD83C\uDF10 跨环境同步</button>' +
+                '<button id="as-umode-same" class="as-btn as-btn-xs as-mode-btn" title="同环境：以另一个账号为模板，覆盖目标账号的应用与角色。同一环境 ID 可直接比较，不做编码映射。">\uD83D\uDCCB 同环境模板复制</button>' +
+                '<span style="margin-left:8px;font-size:10px;color:#888">当前: <b id="as-user-env">-</b></span>' +
               '</div>' +
-              '<div id="as-log" class="as-log-body as-log-collapsed"></div>' +
             '</div>' +
+            '<div class="as-user-body">' +
+              '<div class="as-user-row">' +
+                '<span class="as-label" id="as-src-label">源账号:</span>' +
+                '<input id="as-src-account" class="as-user-input" placeholder="输入账号，如 testAPSAuth" />' +
+                '<button id="as-capture-src" class="as-btn as-btn-sm">\uD83D\uDCE5 采集源账号</button>' +
+              '</div>' +
+              '<div class="as-user-row">' +
+                '<span class="as-label">目标账号:</span>' +
+                '<input id="as-tgt-account" class="as-user-input" placeholder="输入账号" />' +
+                '<button id="as-capture-tgt" class="as-btn as-btn-sm">\uD83D\uDCE5 采集目标账号</button>' +
+              '</div>' +
+              '<div class="as-user-snap" id="as-user-snap">\u2460 先采集源账号，\u2461 再采集目标账号</div>' +
+              '<div class="as-user-preview" id="as-user-preview"></div>' +
+              '<div class="as-user-actions">' +
+                '<button id="as-user-refresh" class="as-btn as-btn-primary as-btn-sm">\uD83D\uDD04 刷新差异预览</button>' +
+                '<button id="as-user-exec" class="as-btn as-btn-success as-btn-sm" disabled>\u26A1 执行同步</button>' +
+                '<button id="as-user-reset" class="as-btn as-btn-danger as-btn-sm">\uD83D\uDDD1 清空</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          // ── 日志（两个面板共用，故放在面板最外层）──
+          '<div class="as-log-wrap" id="as-log-wrap">' +
+            '<div class="as-log-title" id="as-log-toggle">' +
+              '<span>\uD83D\uDCCB 日志</span>' +
+              '<span id="as-log-count" style="margin-left:8px"></span>' +
+              '<span style="margin-left:auto;font-size:10px">\u25BC 展开</span>' +
+            '</div>' +
+            '<div id="as-log" class="as-log-body as-log-collapsed"></div>' +
           '</div>' +
         '</div>';
       document.body.appendChild(panelEl);
@@ -1211,6 +1625,17 @@
       bindClick('as-help-btn', function () {
         window.open(chrome.runtime.getURL('help.html'), '_blank');
       });
+      // ── 顶层能力切换 ──
+      bindClick('as-tab-res', function () { switchTopTab('res'); });
+      bindClick('as-tab-user', function () { switchTopTab('user'); });
+      // ── 用户权限同步 ──
+      bindClick('as-umode-cross', function () { switchUserMode('cross-env'); });
+      bindClick('as-umode-same', function () { switchUserMode('same-env'); });
+      bindClick('as-capture-src', function () { captureUserSnapshot('src'); });
+      bindClick('as-capture-tgt', function () { captureUserSnapshot('tgt'); });
+      bindClick('as-user-refresh', function () { renderUserPreview(); });
+      bindClick('as-user-exec', function () { executeUserSync(); });
+      bindClick('as-user-reset', function () { resetUserSync(false); });
       // 源数据：展开/折叠/全选
       bindClick('as-dev-expand-all', function () { setAllExpanded(devTree, expandedDev, true); saveStoredData(); refreshPanel(); });
       bindClick('as-dev-collapse-all', function () { expandedDev = {}; refreshPanel(); });
@@ -1734,6 +2159,7 @@
     renderQueue();
     updateTargetInfo();
     renderLog();
+    renderUserPane();
 
     // 模式按钮高亮
     var mode0 = document.getElementById('as-mode-batch');

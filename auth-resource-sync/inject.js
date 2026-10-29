@@ -129,7 +129,10 @@
   };
 
   // ==================== API 代理：在页面上下文发起请求 ====================
-  function proxyApiCall(apiPath, data, token) {
+  // extraHeaders 用于透传页面自己会带的自定义头。
+  // 例如 /auth2/user/listByPage 必须带 `page_key: auth2:userManagement`，
+  // 否则后端返回「无数据权限，页面key不能为空」——这是页面 getUserList 里就有的头。
+  function proxyApiCall(apiPath, data, token, extraHeaders) {
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', apiPath, true);
@@ -143,6 +146,12 @@
         xhr.setRequestHeader('Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai');
       } catch (e) {
         xhr.setRequestHeader('Timezone', 'Asia/Shanghai');
+      }
+
+      if (extraHeaders && typeof extraHeaders === 'object') {
+        Object.keys(extraHeaders).forEach(function (k) {
+          try { xhr.setRequestHeader(k, extraHeaders[k]); } catch (e) { /* 非法头名忽略 */ }
+        });
       }
 
       xhr.onload = function () {
@@ -239,8 +248,9 @@
       var apiPath = msg.apiPath;
       var data = msg.data || {};
       var token = msg.token || '';
+      var extraHeaders = msg.headers || null;
 
-      proxyApiCall(apiPath, data, token).then(function (result) {
+      proxyApiCall(apiPath, data, token, extraHeaders).then(function (result) {
         window.postMessage({
           source: 'auth-resource-sync-inject',
           type: 'CALL_API_RESULT',
