@@ -410,11 +410,44 @@
     return WRITABLE_LABEL_RE.test(host.split('.')[0]);
   }
 
+  /**
+   * 环境的中文标签，用于提示文案。
+   *
+   * 为什么不能一律叫"生产"：只读白名单覆盖 uat / stg / prod 三类，
+   * 把 uat 说成"生产"会让人以为插件认错了环境 —— 文案必须如实反映当前是哪类环境。
+   * 生产宿主的判定：公司前端是 <env>[-auth].joyintoy.cn 的形态，
+   * 不带环境前缀的 auth.joyintoy.cn 就是生产（用户确认）。
+   */
+  var PROD_HOST_RE = /^(auth|www)\.joyintoy\.cn$/i;
+  var ENV_LABELS = [
+    { re: /prod|prd/i, label: '生产' },
+    { re: /stg|staging/i, label: '预发' },
+    { re: /uat/i, label: '验收（准生产）' },
+    { re: /sit/i, label: '集成测试' },
+    { re: /test/i, label: '测试' },
+    { re: /dev/i, label: '开发' }
+  ];
+
+  function envLabel(host) {
+    host = String(host || '');
+    if (!host) return '未知';
+    if (PROD_HOST_RE.test(host)) return '生产';
+    if (host === 'localhost' || host.indexOf('localhost') === 0) return '本地';
+    if (host === '127.0.0.1' || host.indexOf('127.0.0.1') === 0) return '本地';
+    var head = host.split('.')[0];
+    for (var i = 0; i < ENV_LABELS.length; i++) {
+      if (ENV_LABELS[i].re.test(head)) return ENV_LABELS[i].label;
+    }
+    return '未知';
+  }
+
   /** 供界面展示：为什么这个环境不允许写 */
   function writeBlockReason(host) {
     if (isWriteAllowed(host)) return '';
-    return '「' + String(host || '未知环境') + '」不在可写环境白名单内（只认首段含 dev/test/uat/stg/sit 的宿主）。' +
-           '生产环境默认只读，避免误改线上权限。';
+    var h = String(host || '未知环境');
+    return '「' + h + '」是' + envLabel(h) + '环境，默认只读、禁止写入。' +
+           '可写环境只有开发 / 测试 / 集成测试（另放行 localhost）；' +
+           '确有需要可在面板头部点「开启写入」临时豁免。';
   }
 
   return {
@@ -429,6 +462,7 @@
     envColor: envColor,
     shortEnv: shortEnv,
     isWriteAllowed: isWriteAllowed,
-    writeBlockReason: writeBlockReason
+    writeBlockReason: writeBlockReason,
+    envLabel: envLabel
   };
 });

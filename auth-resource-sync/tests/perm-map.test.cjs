@@ -400,5 +400,37 @@ test('writeBlockReason：允许时为空串，禁止时给出可操作的原因'
   assert.match(r, /auth\.joyintoy\.cn/);
 });
 
+console.log('\n[envLabel] 环境中文标签（提示文案不能把 uat 说成生产）');
+
+test('各环境标签如实反映是哪一类环境', () => {
+  assert.strictEqual(M.envLabel('mdmdev-auth.joyintoy.cn'), '开发');
+  assert.strictEqual(M.envLabel('mdmtest-auth.joyintoy.cn'), '测试');
+  assert.strictEqual(M.envLabel('sit-auth.joyintoy.cn'), '集成测试');
+  assert.strictEqual(M.envLabel('uat-auth.joyintoy.cn'), '验收（准生产）');
+  assert.strictEqual(M.envLabel('stg-auth.joyintoy.cn'), '预发');
+});
+
+test('不带环境前缀的 auth.joyintoy.cn 判定为生产（用户确认的宿主形态）', () => {
+  assert.strictEqual(M.envLabel('auth.joyintoy.cn'), '生产');
+  assert.strictEqual(M.envLabel('www.joyintoy.cn'), '生产');
+  assert.strictEqual(M.envLabel('mdmprod-auth.joyintoy.cn'), '生产');
+});
+
+test('本地与未知环境', () => {
+  assert.strictEqual(M.envLabel('localhost'), '本地');
+  assert.strictEqual(M.envLabel('localhost:8080'), '本地');
+  assert.strictEqual(M.envLabel('127.0.0.1'), '本地');
+  assert.strictEqual(M.envLabel('weird.example.com'), '未知');
+  assert.strictEqual(M.envLabel(''), '未知');
+});
+
+test('拒绝写入的文案带上真实环境类型，且不含"所有只读环境都是生产"的错误暗示', () => {
+  const uat = M.writeBlockReason('uat-auth.joyintoy.cn');
+  assert.match(uat, /验收（准生产）/);
+  assert.ok(uat.indexOf('是生产环境') === -1, 'uat 的文案不该说自己是生产');
+  const prd = M.writeBlockReason('auth.joyintoy.cn');
+  assert.match(prd, /是生产环境/);
+});
+
 console.log('\n结果: ' + passed + ' 通过, ' + failed + ' 失败');
 process.exit(failed === 0 ? 0 : 1);

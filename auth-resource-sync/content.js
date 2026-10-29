@@ -1217,9 +1217,11 @@
    */
   function enableWriteOverride() {
     var host = window.location.hostname;
+    // 文案必须如实说明当前是哪类环境：只读覆盖 uat/stg/prod，
+    // 一律叫"生产"会让人以为插件认错了环境（用户已就此反馈过）。
     if (!window.confirm(
-      '\u26A0 当前环境被视为受保护环境（生产），默认禁止写入。\n\n' +
-      '开启后将允许本扩展修改「' + host + '」上的账号权限 ——\n' +
+      '\u26A0 当前环境「' + host + '」是' + AuthPermMap.envLabel(host) + '环境，默认禁止写入。\n\n' +
+      '开启后将允许本扩展修改该环境的账号权限 ——\n' +
       '这是真实数据，改错无法自动回滚。\n\n' +
       '确定要开启吗？'
     )) return;

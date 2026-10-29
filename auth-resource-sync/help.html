@@ -164,18 +164,25 @@
     并顺带确认基础信息未被改动。校验不通过会在日志里标红 —— 不要只看「提交成功」。
   </div>
 
-  <h3>生产环境默认只读（可临时开启）</h3>
-  <p>为避免误改线上权限，扩展把<strong>不认识的宿主一律视为生产环境并禁止写入</strong> ——
-     可写环境白名单只有：宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code>，
-     另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>。
-     <strong><code>uat</code> 与 <code>stg</code> 被视为准生产，默认只读</strong>
-     （业务方会在 uat 上验收，改错影响面大）。</p>
-  <p>被拦时头部会显示 <code>🔒 只读</code> 徽标，两个面板的执行按钮都会变成不可用。
+  <h3>非开发/测试环境默认只读（可临时开启）</h3>
+  <p>可写环境白名单只有：宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code>，
+     另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>；<strong>其他一律只读、禁止写入</strong>。</p>
+  <table>
+    <tr><th>宿主形态</th><th>识别为</th><th>可写</th></tr>
+    <tr><td><code>mdmdev-auth.joyintoy.cn</code></td><td>开发</td><td class="green">是</td></tr>
+    <tr><td><code>mdmtest-auth.joyintoy.cn</code></td><td>测试</td><td class="green">是</td></tr>
+    <tr><td><code>sit-auth.joyintoy.cn</code></td><td>集成测试</td><td class="green">是</td></tr>
+    <tr><td><code>uat-auth.joyintoy.cn</code></td><td>验收（准生产）</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
+    <tr><td><code>stg-auth.joyintoy.cn</code></td><td>预发</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
+    <tr><td><code>auth.joyintoy.cn</code></td><td>生产</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
+    <tr><td>其他任意域名</td><td>未知</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
+  </table>
+  <p>被拦时头部会显示 <code>🔒 只读</code> 徽标，两个面板的执行按钮都会变成不可用，鼠标悬停可看具体原因。
      <strong>只读只挡写操作，采集与差异预览不受影响</strong>，你仍然可以先把差异看清楚。</p>
-  <p>确有生产同步需求时，点头部的 <code>开启写入</code>，需要<strong>两步确认</strong>：
+  <p>确有同步需求时，点头部的 <code>开启写入</code>，需要<strong>两步确认</strong>：
      先确认后果（会明确告诉你改错无法自动回滚），再<strong>手动输入当前环境的完整域名</strong>。
      开启后仅对<strong>当前环境、当前页面会话</strong>生效 —— <strong>刷新页面即恢复只读</strong>，
-     列表里也不会一直留着一个"已经打开"的开关。</p>
+     不会一直留着一个"已经打开"的开关。</p>
 
   <h3>执行前会校验环境是否匹配</h3>
   <p>快照里的用户 ID、应用 ID、角色 ID、资源节点 ID 都<strong>只在采集它的那个环境里有意义</strong>。
