@@ -268,5 +268,40 @@ test('不修改传入的原对象（纯函数）', () => {
   assert.strictEqual(JSON.stringify(detail), snapshot, '入参不该被改动');
 });
 
+console.log('\n[superAdminReason] 疑似超管判定（执行前额外告警的判据）');
+
+const ROLES = [
+  { id: 1, appId: 11, roleCode: 'aps-admin', roleName: 'APS管理员' },
+  { id: 2, appId: 0, roleCode: 'auth_manager', roleName: '权限系统管理员' },
+  { id: 3, appId: 11, roleCode: 'auth_super_manager', roleName: '权限超级管理员' }
+];
+
+test('账号名为 admin 直接判定', () => {
+  assert.match(M.superAdminReason({ account: 'admin', roles: ROLES, roleIdList: [] }), /admin/);
+  assert.match(M.superAdminReason({ account: 'ADMIN', roles: ROLES, roleIdList: [] }), /admin/);
+});
+
+test('持有 appId=0 的全局角色 → 判定命中并说明原因', () => {
+  const r = M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [2] });
+  assert.match(r, /全局角色/);
+  assert.match(r, /auth_manager/);
+});
+
+test('角色名含 super_manager / 超级管理员 → 命中', () => {
+  assert.match(M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [3] }), /auth_super_manager/);
+  const cn = [{ id: 9, appId: 11, roleCode: 'x', roleName: '权限超级管理员' }];
+  assert.match(M.superAdminReason({ account: 'zhangsan', roles: cn, roleIdList: [9] }), /超级管理员/);
+});
+
+test('普通账号返回空串（不要误报，否则告警会变噪音）', () => {
+  assert.strictEqual(M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [1] }), '');
+  assert.strictEqual(M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [] }), '');
+  assert.strictEqual(M.superAdminReason(null), '');
+});
+
+test('角色 id 在枚举里找不到时不崩、也不误判', () => {
+  assert.strictEqual(M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [999] }), '');
+});
+
 console.log('\n结果: ' + passed + ' 通过, ' + failed + ' 失败');
 process.exit(failed === 0 ? 0 : 1);

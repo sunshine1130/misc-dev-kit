@@ -325,6 +325,31 @@
     return payload;
   }
 
+  /**
+   * 疑似超级管理员的判定（启发式，宁可多提醒一次）。
+   * 命中任一即返回原因字符串，否则返回空串。
+   *
+   * 为什么放在这个纯函数模块里：它是"执行前要不要多弹一次警告"的判据，
+   * 属于安全相关的决策逻辑，必须能被单测覆盖，而不是埋在 DOM 代码里。
+   */
+  function superAdminReason(snap) {
+    if (!snap) return '';
+    if (String(snap.account || '').toLowerCase() === 'admin') return '账号名为 admin';
+    var ids = toArray(snap.roleIdList);
+    for (var i = 0; i < ids.length; i++) {
+      var r = toArray(snap.roles).filter(function (x) { return String(x.id) === String(ids[i]); })[0];
+      if (!r) continue;
+      // 同时给出编码与名称：只回显其一都可能让人认不出是哪个角色
+      var label = (r.roleCode || r.id) + (r.roleName ? '(' + r.roleName + ')' : '');
+      // appId=0 的角色不属于任何应用（实测如 auth_manager），是全局/超管角色的特征
+      if (r.appId === 0) return '持有不属于任何应用的全局角色 ' + label;
+      if (/super_?manager|超级管理员/i.test(String(r.roleCode || '') + String(r.roleName || ''))) {
+        return '持有角色 ' + label;
+      }
+    }
+    return '';
+  }
+
   return {
     mapCrossEnv: mapCrossEnv,
     mapSameEnv: mapSameEnv,
@@ -332,6 +357,7 @@
     plan: plan,
     buildEditPayload: buildEditPayload,
     indexRolesByCode: indexRolesByCode,
+    superAdminReason: superAdminReason,
     appLabel: appLabel,
     roleLabel: roleLabel
   };

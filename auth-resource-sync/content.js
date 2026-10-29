@@ -1307,6 +1307,39 @@
     return h;
   }
 
+  /** 解 JWT payload（base64url，可能缺 padding） */
+  function jwtPayload(token) {
+    try {
+      var p = String(token || '').split('.')[1];
+      if (!p) return null;
+      p = p.replace(/-/g, '+').replace(/_/g, '/');
+      while (p.length % 4) p += '=';
+      return JSON.parse(atob(p));
+    } catch (e) { return null; }
+  }
+
+  /**
+   * 当前登录人的 userId。
+   * 优先读应用自己写进 localStorage 的 USERID（实测存在），
+   * 读不到再解 Admin-Token 的 payload（实测含 user_id）。
+   */
+  function currentUserId() {
+    try {
+      var u = localStorage.getItem('USERID');
+      if (u) return String(u).replace(/^"|"$/g, '');
+    } catch (e) {}
+    var p = jwtPayload(getToken().replace(/^Bearer\s+/i, ''));
+    return (p && p.user_id) ? String(p.user_id) : '';
+  }
+
+  /**
+   * 疑似超级管理员的判定 —— 实现在 perm-map.js 里（纯函数、有单测覆盖），
+   * 这里只做一层转调，避免同一套判据在两处漂移。
+   */
+  function superAdminReason(snap) {
+    return AuthPermMap.superAdminReason(snap);
+  }
+
   /**
    * 执行同步：read-modify-write → editUser → 回读校验。
    * 回读这一步不能省：接口返回 200 不等于权限真的写对了。
@@ -1325,6 +1358,19 @@
       msg += '\n⚠ 将会移除 ' + removedApps + ' 个应用、' + removedRoles + ' 个角色，请先核对预览。\n';
     }
     msg += '\n用户基础信息（姓名/部门/手机号/邮箱等）不会改动。';
+
+    // 边界 5：目标就是自己 —— 有把自己锁在权限管理页之外的风险
+    var meId = currentUserId();
+    if (meId && tgtSnapshot.userId && String(meId) === String(tgtSnapshot.userId) && (removedApps || removedRoles)) {
+      msg += '\n\n⚠⚠ 目标账号就是你自己！\n' +
+             '本次将移除 ' + (removedApps + removedRoles) + ' 项权限。' +
+             '若其中包含用户管理权限，你可能把自己锁在权限管理页面之外。\n' +
+             '建议改用另一个管理员账号来操作。';
+    }
+    // 边界 6：疑似超管账号
+    var adminWhy = superAdminReason(tgtSnapshot);
+    if (adminWhy) msg += '\n\n⚠ 目标账号疑似超级管理员（' + adminWhy + '），请确认这是你要改的账号。';
+
     if (!window.confirm(msg)) { addLog('[用户同步] 已取消执行', 'warn'); return; }
 
     _userBusy = true; refreshPanel();
