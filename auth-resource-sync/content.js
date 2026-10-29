@@ -1150,29 +1150,38 @@
 
   /**
    * 按账号名查 userId。
-   * 先用 userName 条件查（后端支持则一次命中），再翻页兜底 —— 不假设后端真的过滤了条件。
+   *
+   * 先带 userName 条件查（后端过滤得准就一次命中），查不到再**全量翻页兜底**。
+   * 为什么必须有兜底：实测后端的 userName 更像模糊匹配，模糊命中时目标账号
+   * 可能压根不在返回结果里，只有全量扫一遍才找得到。
    */
   async function findUserIdByAccount(account) {
     var wanted = String(account).trim().toLowerCase();
-    var seen = 0;
-    for (var page = 1; page <= 20; page++) {
-      var data = await apiCall('/auth2/user/listByPage', {
-        pageNum: page,
-        pageSize: USER_LIST_PAGE_SIZE,
-        userName: account
-      }, USER_PAGE_HEADERS);
-      var rows = (data && (data.records || data.list || data.rows)) || (Array.isArray(data) ? data : []);
-      if (!rows.length) break;
-      for (var i = 0; i < rows.length; i++) {
-        if (String(rows[i].userName || '').toLowerCase() === wanted) {
-          return rows[i].userId || rows[i].id;
+
+    async function scan(withFilter) {
+      var seen = 0;
+      for (var page = 1; page <= 20; page++) {
+        var body = { pageNum: page, pageSize: USER_LIST_PAGE_SIZE };
+        if (withFilter) body.userName = account;
+        var data = await apiCall('/auth2/user/listByPage', body, USER_PAGE_HEADERS);
+        var rows = (data && (data.records || data.list || data.rows)) || (Array.isArray(data) ? data : []);
+        if (!rows.length) return null;
+        for (var i = 0; i < rows.length; i++) {
+          if (String(rows[i].userName || '').toLowerCase() === wanted) {
+            return rows[i].userId || rows[i].id;
+          }
         }
+        seen += rows.length;
+        var total = data && data.total;
+        if (total !== undefined && seen >= total) return null;
       }
-      seen += rows.length;
-      var total = data && data.total;
-      if (total !== undefined && seen >= total) break;
+      return null;
     }
-    throw new Error('当前环境找不到账号「' + account + '」');
+
+    var hit = await scan(true);
+    if (!hit) hit = await scan(false);
+    if (!hit) throw new Error('当前环境找不到账号「' + account + '」');
+    return hit;
   }
 
   /**
@@ -1190,11 +1199,19 @@
       return;
     }
 
+    if (_userBusy) { addLog('[用户同步] 上一个操作还在进行，请稍候', 'warn'); return; }
     _userBusy = true; refreshPanel();
     try {
       addLog('[用户同步] 正在采集 ' + roleName + '账号 ' + account + ' ...');
       var userId = await findUserIdByAccount(account);
       var detail = await apiCall('/auth2/user/selectUserDetail', { userId: userId });
+
+      // 详情为空必须当成错误，绝不能当成"该账号没有权限"继续往下走。
+      // 后果有多严重：若源快照因此变成空，计划会被算成"把目标账号的应用与角色全部移除"。
+      if (!detail || (detail.userId === undefined && detail.id === undefined)) {
+        throw new Error('没取到账号「' + account + '」的权限详情，请确认该账号是否已被删除');
+      }
+
       var apps = await apiCall('/auth2/app/selectApp', {});
       // ids 传空数组时后端返回全部角色（实测 94 条），一次拿全，省掉按应用逐个查
       var roles = await apiCall('/auth2/role/selectAppRole', { ids: [] });
@@ -1203,12 +1220,12 @@
       var snap = {
         env: { host: window.location.hostname, apiBase: apiBase },
         account: account,
-        userId: userId,
+        userId: detail.userId !== undefined ? detail.userId : detail.id,
         apps: apps || [],
         roles: roles || [],
-        appIdList: (detail && detail.appIdList) || [],
-        roleIdList: (detail && detail.roleIdList) || [],
-        detail: detail || {},
+        appIdList: detail.appIdList || [],
+        roleIdList: detail.roleIdList || [],
+        detail: detail,
         capturedAt: Date.now()
       };
       if (which === 'src') srcSnapshot = snap; else tgtSnapshot = snap;
@@ -1348,6 +1365,8 @@
    * 回读这一步不能省：接口返回 200 不等于权限真的写对了。
    */
   async function executeUserSync() {
+    // 重入保护：确认框弹出前的这段是同步代码，连点两次会弹两个框
+    if (_userBusy) return;
     if (!_userPlan) { addLog('[用户同步] 请先刷新差异预览', 'warn'); refreshPanel(); return; }
     if (!tgtSnapshot) return;
     if (_userPlan.noop) { addLog('[用户同步] 权限已一致，未发送任何写请求', 'success'); refreshPanel(); return; }
@@ -1380,6 +1399,23 @@
     try {
       // 提交前重新拉一次目标用户详情：预览与执行之间目标数据可能已被页面改动
       var fresh = await apiCall('/auth2/user/selectUserDetail', { userId: tgtSnapshot.userId });
+      // 拿不到详情就必须中止：buildEditPayload 以它为基础，空对象会生成一个
+      // 缺少基础字段的载荷，editUser 全量提交语义下等于把用户信息置空。
+      if (!fresh || (fresh.userId === undefined && fresh.id === undefined)) {
+        throw new Error('提交前重新拉取目标账号详情失败，已中止（避免用不完整的数据覆盖）');
+      }
+
+      // 预览与执行之间，目标账号的权限可能已被别人改过。
+      // 此时确认框里那份"将移除"清单已经不准确，继续提交等于按过期判断改线上权限 —— 必须中止。
+      var norm = function (a) { return JSON.stringify((Array.isArray(a) ? a : []).map(String).sort()); };
+      var assumedApps = norm(tgtSnapshot.detail && tgtSnapshot.detail.appIdList);
+      var assumedRoles = norm(tgtSnapshot.detail && tgtSnapshot.detail.roleIdList);
+      var nowApps = norm(fresh.appIdList);
+      var nowRoles = norm(fresh.roleIdList);
+      if (assumedApps !== nowApps || assumedRoles !== nowRoles) {
+        throw new Error('目标账号的权限在预览之后已被改动，请点「刷新差异预览」重新确认后再执行');
+      }
+
       var payload = AuthPermMap.buildEditPayload(fresh, _userPlan.appIdList, _userPlan.roleIdList);
       await apiCall('/auth2/user/editUser', payload);
       addLog('[用户同步] 已提交 editUser（应用 ' + payload.appIdList.length +
@@ -1423,11 +1459,36 @@
     srcSnapshot = null;
     tgtSnapshot = null;
     _userPlan = null;
+    _restoredAt = { src: 0, tgt: 0 };
     var a = document.getElementById('as-src-account'); if (a) a.value = '';
     var b = document.getElementById('as-tgt-account'); if (b) b.value = '';
-    var p = document.getElementById('as-user-preview'); if (p) p.innerHTML = '';
     saveStoredData();
-    refreshPanel();
+    renderUserPreview();   // 快照已清空，这里把预览区恢复成占位提示（其内部会 refreshPanel）
+  }
+
+  /**
+   * 账号输入框被改动 → 作废已采集的预览。
+   *
+   * 为什么必须做：快照是按"采集那一刻的账号"算的，用户改了输入框之后，
+   * 界面上显示的仍是旧账号的差异，而执行用的也是旧快照 ——
+   * 一点「执行同步」就改错了人。这是最容易发生、后果也最重的误操作路径。
+   */
+  function onAccountInputChanged() {
+    var srcEl = document.getElementById('as-src-account');
+    var tgtEl = document.getElementById('as-tgt-account');
+    var srcDirty = srcSnapshot && srcEl && String(srcEl.value).trim() !== String(srcSnapshot.account);
+    var tgtDirty = tgtSnapshot && tgtEl && String(tgtEl.value).trim() !== String(tgtSnapshot.account);
+    if (!srcDirty && !tgtDirty) return;
+
+    _userPlan = null;
+    var box = document.getElementById('as-user-preview');
+    if (box) {
+      box.innerHTML = '<div class="as-pv-del">账号已改动，与已采集的快照不一致。</div>' +
+                      '<div class="as-pv-unres">请重新点「\uD83D\uDCE5 采集源账号 / 采集目标账号」，' +
+                      '再刷新差异预览。</div>';
+    }
+    var execBtn = document.getElementById('as-user-exec');
+    if (execBtn) execBtn.disabled = true;
   }
 
   function switchTopTab(tab) {
@@ -1470,8 +1531,8 @@
     applyEnvStyle('as-tgt-account', 'as-tgt-env', tgtSnapshot);
     // 跨环境时源快照是在另一个标签页采集的，这里把账号名回填，
     // 否则切过来只看到空的源输入框，会误以为没采到。
-    restoreAccountInput('as-src-account', srcSnapshot);
-    restoreAccountInput('as-tgt-account', tgtSnapshot);
+    restoreAccountInput('as-src-account', srcSnapshot, 'src');
+    restoreAccountInput('as-tgt-account', tgtSnapshot, 'tgt');
 
     var snapEl = document.getElementById('as-user-snap');
     if (snapEl) {
@@ -1549,18 +1610,25 @@
     badge.title = '采集自 ' + host;
   }
 
+  // 已回填过的快照时间戳：同一个快照只回填一次。
+  // 为什么要这个标记：refreshPanel 触发极频繁，若每次都回填，用户手动清空输入框后
+  // 会被立刻填回来 —— 等于和用户抢输入框。
+  var _restoredAt = { src: 0, tgt: 0 };
+
   /**
-   * 输入框为空时用快照里的账号回填。
-   * 两个限制条件都不能省：
-   *   1. 只在为空时回填 —— 绝不覆盖用户已经输入/粘贴的内容；
-   *   2. 正在输入时不回填 —— refreshPanel 触发很频繁，否则会和用户抢输入框。
+   * 输入框为空时用快照里的账号回填（同一个快照只回填一次）。
+   * 三个限制都不能省：
+   *   1. 同一快照只回填一次 —— 否则会把用户手动清空的内容立刻填回来；
+   *   2. 已有内容不覆盖 —— 不打断用户输入或粘贴；
+   *   3. 正在输入时不动 —— refreshPanel 触发很频繁，否则光标会被抢走。
    */
-  function restoreAccountInput(inputId, snap) {
+  function restoreAccountInput(inputId, snap, which) {
     var input = document.getElementById(inputId);
     if (!input || !snap) return;
-    if (input.value) return;
+    if (_restoredAt[which] === snap.capturedAt) return;
     if (document.activeElement === input) return;
-    input.value = snap.account || '';
+    if (!input.value) input.value = snap.account || '';
+    _restoredAt[which] = snap.capturedAt;
   }
 
   function snapshotLine(role, snap) {
@@ -1752,6 +1820,11 @@
       bindClick('as-user-refresh', function () { renderUserPreview(); });
       bindClick('as-user-exec', function () { executeUserSync(); });
       bindClick('as-user-reset', function () { resetUserSync(); });
+      // 账号输入框被改动就立刻作废已采集的预览，避免按旧快照改错账号
+      ['as-src-account', 'as-tgt-account'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', onAccountInputChanged);
+      });
       // 源数据：展开/折叠/全选
       bindClick('as-dev-expand-all', function () { setAllExpanded(devTree, expandedDev, true); saveStoredData(); refreshPanel(); });
       bindClick('as-dev-collapse-all', function () { expandedDev = {}; refreshPanel(); });
@@ -2310,7 +2383,10 @@
   }
 
   function disableButtons(disabled) {
-    ['as-capture-dev', 'as-capture-test', 'as-exec-sync', 'as-add-queue'].forEach(function (id) {
+    // 只包含"采集"类按钮；as-user-exec 的可用性由 renderUserPane 单独决定
+    // （无计划/已一致时必须保持禁用），放进来会被这里重置。
+    ['as-capture-dev', 'as-capture-test', 'as-exec-sync', 'as-add-queue',
+     'as-capture-src', 'as-capture-tgt'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.disabled = disabled;
     });

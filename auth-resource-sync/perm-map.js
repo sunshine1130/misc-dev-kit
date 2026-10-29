@@ -30,10 +30,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  /** 取名字用于展示：应用优先 appCode，角色优先 roleCode，缺失时退回名称 */
-  function appLabel(app) {
-    return (app && (app.appCode || app.appName)) || String((app && app.id) || '');
-  }
+  /** 角色展示名：优先 roleCode，缺失时退回名称/id。仅本模块内部用于生成 unresolved 说明 */
   function roleLabel(role) {
     if (!role) return '';
     return role.roleCode || role.roleName || role.appRoleName || String(role.id || '');
@@ -91,7 +88,6 @@
     var warnings = [];
 
     // ① 应用：源 appId -> 源 appCode -> 目标 appId
-    var appCodeByTargetId = {};   // 目标 appId -> appCode，供第 ② 步反查
     var appIdList = [];
     var seenApp = {};
     // 记录"被勾选过的源应用"及其映射结果。
@@ -115,7 +111,6 @@
         seenApp[String(hit.id)] = true;
         appIdList.push(hit.id);
       }
-      appCodeByTargetId[String(hit.id)] = sa.appCode;
     });
 
     // ② 角色：源 roleId -> (appCode, roleCode) -> 目标 roleId
@@ -408,8 +403,6 @@
     superAdminReason: superAdminReason,
     inferMode: inferMode,
     envColor: envColor,
-    shortEnv: shortEnv,
-    appLabel: appLabel,
-    roleLabel: roleLabel
+    shortEnv: shortEnv
   };
 });
