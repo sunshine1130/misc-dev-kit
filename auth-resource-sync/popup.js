@@ -120,7 +120,10 @@
   async function clearData() {
     if (!confirm('\u786E\u5B9A\u6E05\u9664\u6240\u6709\u91C7\u96C6\u6570\u636E\u548C\u540C\u6B65\u961F\u5217\uFF1F')) return;
     try {
-      await chrome.storage.local.remove(STORAGE_KEY);
+      // 交给 background 统一删（本扩展里唯一执行"清空"的地方）。
+      // 清空后已打开页面的 content script 会通过 storage.onChanged 自行重置。
+      var res = await chrome.runtime.sendMessage({ type: 'CLEAR_DATA' });
+      if (!res || !res.success) throw new Error((res && res.error) || '未收到确认');
       noDataEl.style.display = '';
       hasDataEl.style.display = 'none';
     } catch (e) { alert('\u6E05\u9664\u5931\u8D25: ' + e.message); }

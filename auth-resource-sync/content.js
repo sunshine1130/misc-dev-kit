@@ -2785,19 +2785,8 @@
                     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  // ==================== 外部消息 ====================
-  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
-    if (msg.type === 'GET_STATUS') {
-      sendResponse({
-        devNodeCount: countNodes(devTree),
-        testNodeCount: countNodes(testTree),
-        taskCount: syncTasks.length,
-        syncStatus: syncStatus
-      });
-    }
-    return true;
-  });
-
   // ==================== 启动 ====================
+  // 原先这里有个 GET_STATUS 消息监听器，但全扩展没有任何地方发送它，
+  // 而且返回的结构也不含用户权限同步的状态（过期）—— 已删除。
   init();
 })();
