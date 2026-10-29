@@ -303,5 +303,24 @@ test('角色 id 在枚举里找不到时不崩、也不误判', () => {
   assert.strictEqual(M.superAdminReason({ account: 'zhangsan', roles: ROLES, roleIdList: [999] }), '');
 });
 
+console.log('\n[inferMode] 同步方式自动推导（替代手选模式）');
+
+test('同一宿主 → same-env', () => {
+  assert.strictEqual(M.inferMode({ env: { host: 'mdmtest-auth.joyintoy.cn' } },
+                                 { env: { host: 'mdmtest-auth.joyintoy.cn' } }), 'same-env');
+});
+
+test('不同宿主 → cross-env', () => {
+  assert.strictEqual(M.inferMode({ env: { host: 'mdmdev-auth.joyintoy.cn' } },
+                                 { env: { host: 'mdmtest-auth.joyintoy.cn' } }), 'cross-env');
+});
+
+test('任一快照缺失或取不到宿主 → null（未采齐，不猜）', () => {
+  assert.strictEqual(M.inferMode(null, { env: { host: 'a' } }), null);
+  assert.strictEqual(M.inferMode({ env: { host: 'a' } }, null), null);
+  assert.strictEqual(M.inferMode({}, { env: { host: 'a' } }), null);
+  assert.strictEqual(M.inferMode({ env: { host: 'a' } }, {}), null);
+});
+
 console.log('\n结果: ' + passed + ' 通过, ' + failed + ' 失败');
 process.exit(failed === 0 ? 0 : 1);

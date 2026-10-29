@@ -545,6 +545,27 @@
   font-weight: 600;
 }
 
+/* 同步方式提示：自动判定，不是可点的开关 */
+.as-mode-info {
+  font-size: 11px;
+  color: #888;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+.as-mode-info-same {
+  color: #1890ff;
+  background: #e6f7ff;
+  border-color: #91d5ff;
+}
+.as-mode-info-cross {
+  color: #722ed1;
+  background: #f9f0ff;
+  border-color: #d3adf7;
+}
+
 /* ========== 用户权限同步面板 ========== */
 .as-user-body {
   flex: 1;

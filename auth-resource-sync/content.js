@@ -145,7 +145,6 @@
         syncTasks = d.syncTasks || [];
         singleTasks = d.singleTasks || [];
         syncMode = d.syncMode || 'batch';
-        userSyncMode = d.userSyncMode || 'cross-env';
         srcSnapshot = d.srcSnapshot || null;
         tgtSnapshot = d.tgtSnapshot || null;
         log('[Auth Sync] Loaded: dev ' + countNodes(devTree) + ' nodes, test ' + countNodes(testTree) + ' nodes');
@@ -169,7 +168,6 @@
         syncTasks: syncTasks,
         singleTasks: singleTasks,
         syncMode: syncMode,
-        userSyncMode: userSyncMode,
         srcSnapshot: srcSnapshot,
         tgtSnapshot: tgtSnapshot,
         lastUpdated: Date.now()
@@ -188,7 +186,6 @@
     syncTasks = [];
     singleTasks = [];
     syncMode = 'batch';
-    userSyncMode = 'cross-env';
     srcSnapshot = null;
     tgtSnapshot = null;
     _userPlan = null;
@@ -210,7 +207,6 @@
     syncTasks = newVal.syncTasks || [];
     singleTasks = newVal.singleTasks || [];
     syncMode = newVal.syncMode || 'batch';
-    userSyncMode = newVal.userSyncMode || 'cross-env';
     srcSnapshot = newVal.srcSnapshot || null;
     tgtSnapshot = newVal.tgtSnapshot || null;
     refreshPanel();
@@ -1112,11 +1108,18 @@
   //      原因：editUser 是全量表单提交，少传字段会被当成置空。
   //   3. 权限已一致时不发任何写请求（幂等）。执行后必须回读校验，不能只看接口 200。
 
-  var userSyncMode = 'cross-env';   // 'cross-env' 跨环境同步 | 'same-env' 同环境模板复制
-  var srcSnapshot = null;           // 源（或参照）账号快照
-  var tgtSnapshot = null;           // 目标账号快照
+  // 同步方式不存状态：由两个快照的宿主环境自动推导（AuthPermMap.inferMode）。
+  // 原先做成手选开关是设计冗余 —— 同环境下"跨环境"分支只是把 appId 翻译成
+  // appCode 再翻回来，与"同环境"分支结果等价，徒增选错的机会。
+  var srcSnapshot = null;           // 源账号快照（从它复制权限）
+  var tgtSnapshot = null;           // 目标账号快照（被修改的那个）
   var _userPlan = null;             // 最近一次算出的执行计划
   var _userBusy = false;
+
+  /** 当前该用哪条映射路径；未采齐时返回 null */
+  function currentMode() {
+    return AuthPermMap.inferMode(srcSnapshot, tgtSnapshot);
+  }
 
   var USER_LIST_PAGE_SIZE = 100;
 
@@ -1180,7 +1183,7 @@
   async function captureUserSnapshot(which) {
     var inputEl = document.getElementById(which === 'src' ? 'as-src-account' : 'as-tgt-account');
     var account = inputEl ? String(inputEl.value || '').trim() : '';
-    var roleName = which === 'src' ? (userSyncMode === 'same-env' ? '参照' : '源') : '目标';
+    var roleName = which === 'src' ? '源' : '目标';
     if (!account) {
       addLog('[用户同步] 请先输入' + roleName + '账号', 'warn');
       refreshPanel();
@@ -1260,7 +1263,7 @@
       source: srcSnapshot,
       target: { apps: tgtSnapshot.apps, roles: tgtSnapshot.roles },
       currentDetail: tgtSnapshot.detail,
-      mode: userSyncMode
+      mode: currentMode() || 'same-env'
     });
     _userPlan = plan;
 
@@ -1416,23 +1419,15 @@
     }
   }
 
-  function resetUserSync(alsoResetMode) {
+  function resetUserSync() {
     srcSnapshot = null;
     tgtSnapshot = null;
     _userPlan = null;
-    if (alsoResetMode) userSyncMode = 'cross-env';
     var a = document.getElementById('as-src-account'); if (a) a.value = '';
     var b = document.getElementById('as-tgt-account'); if (b) b.value = '';
     var p = document.getElementById('as-user-preview'); if (p) p.innerHTML = '';
     saveStoredData();
     refreshPanel();
-  }
-
-  function switchUserMode(mode) {
-    userSyncMode = (mode === 'same-env') ? 'same-env' : 'cross-env';
-    _userPlan = null;
-    saveStoredData();
-    if (srcSnapshot && tgtSnapshot) renderUserPreview(); else refreshPanel();
   }
 
   function switchTopTab(tab) {
@@ -1453,35 +1448,28 @@
     var envEl = document.getElementById('as-user-env');
     if (envEl) envEl.textContent = window.location.hostname;
 
-    var m1 = document.getElementById('as-umode-cross');
-    var m2 = document.getElementById('as-umode-same');
-    if (m1) {
-      m1.classList.toggle('as-mode-active', userSyncMode === 'cross-env');
-      m1.style.background = userSyncMode === 'cross-env' ? '#1890ff' : '';
-      m1.style.color = userSyncMode === 'cross-env' ? '#fff' : '#666';
+    // 同步方式自动判定，并说明用的是哪条路径 —— 不给用户选错的机会
+    var modeEl = document.getElementById('as-user-mode');
+    if (modeEl) {
+      var mode = currentMode();
+      if (!mode) {
+        modeEl.textContent = '采集两个账号后自动判定';
+        modeEl.className = 'as-mode-info';
+      } else if (mode === 'same-env') {
+        modeEl.textContent = '\uD83D\uDCCB 同一环境 · 按 ID 直连';
+        modeEl.className = 'as-mode-info as-mode-info-same';
+      } else {
+        modeEl.textContent = '\uD83C\uDF10 跨环境 · 按应用/角色编码映射';
+        modeEl.className = 'as-mode-info as-mode-info-cross';
+      }
     }
-    if (m2) {
-      m2.classList.toggle('as-mode-active', userSyncMode === 'same-env');
-      m2.style.background = userSyncMode === 'same-env' ? '#1890ff' : '';
-      m2.style.color = userSyncMode === 'same-env' ? '#fff' : '#666';
-    }
-
-    var lbl = document.getElementById('as-src-label');
-    if (lbl) lbl.textContent = userSyncMode === 'same-env' ? '参照账号:' : '源账号:';
 
     var snapEl = document.getElementById('as-user-snap');
     if (snapEl) {
-      var lines = [
-        snapshotLine(userSyncMode === 'same-env' ? '参照' : '源', srcSnapshot),
+      snapEl.innerHTML = [
+        snapshotLine('源', srcSnapshot),
         snapshotLine('目标', tgtSnapshot)
-      ];
-      // 跨环境模式却两个快照同环境 —— 大概率是忘了切环境，提前提醒
-      if (srcSnapshot && tgtSnapshot && userSyncMode === 'cross-env' &&
-          srcSnapshot.env.host === tgtSnapshot.env.host) {
-        lines.push('<span class="as-snap-warn">\u26A0 源与目标在同一环境（' +
-                   escHtml(srcSnapshot.env.host) + '），跨环境模式建议改用"同环境模板复制"</span>');
-      }
-      snapEl.innerHTML = lines.join('\n');
+      ].join('\n');
     }
 
     var execBtn = document.getElementById('as-user-exec');
@@ -1615,9 +1603,10 @@
           '<div class="as-content as-pane" id="as-pane-user" style="display:none">' +
             '<div class="as-toolbar">' +
               '<div class="as-toolbar-row">' +
-                '<span class="as-label">模式:</span>' +
-                '<button id="as-umode-cross" class="as-btn as-btn-xs as-mode-btn" title="跨环境：在源环境采集账号权限，切到目标环境写入。两个环境的应用/角色 ID 不同，按编码映射。">\uD83C\uDF10 跨环境同步</button>' +
-                '<button id="as-umode-same" class="as-btn as-btn-xs as-mode-btn" title="同环境：以另一个账号为模板，覆盖目标账号的应用与角色。同一环境 ID 可直接比较，不做编码映射。">\uD83D\uDCCB 同环境模板复制</button>' +
+                '<span class="as-label">方式:</span>' +
+                // 不再让用户手选：同一环境下两条映射路径等价，选错只会带来困惑。
+                // 由两个快照的宿主环境自动推导（见 perm-map.inferMode）。
+                '<span id="as-user-mode" class="as-mode-info">采集两个账号后自动判定</span>' +
                 '<span style="margin-left:8px;font-size:10px;color:#888">当前: <b id="as-user-env">-</b></span>' +
               '</div>' +
             '</div>' +
@@ -1682,13 +1671,11 @@
       bindClick('as-tab-res', function () { switchTopTab('res'); });
       bindClick('as-tab-user', function () { switchTopTab('user'); });
       // ── 用户权限同步 ──
-      bindClick('as-umode-cross', function () { switchUserMode('cross-env'); });
-      bindClick('as-umode-same', function () { switchUserMode('same-env'); });
       bindClick('as-capture-src', function () { captureUserSnapshot('src'); });
       bindClick('as-capture-tgt', function () { captureUserSnapshot('tgt'); });
       bindClick('as-user-refresh', function () { renderUserPreview(); });
       bindClick('as-user-exec', function () { executeUserSync(); });
-      bindClick('as-user-reset', function () { resetUserSync(false); });
+      bindClick('as-user-reset', function () { resetUserSync(); });
       // 源数据：展开/折叠/全选
       bindClick('as-dev-expand-all', function () { setAllExpanded(devTree, expandedDev, true); saveStoredData(); refreshPanel(); });
       bindClick('as-dev-collapse-all', function () { expandedDev = {}; refreshPanel(); });

@@ -350,6 +350,26 @@
     return '';
   }
 
+  /**
+   * 从两个快照的宿主环境推导同步方式 —— 不再让用户手选。
+   *
+   * 为什么可以自动推导：同一环境下，跨环境分支做的其实是
+   * appId → appCode → appId 的往返翻译，翻回原值。两条路径结果等价，
+   * 让用户二选一只是多一个选错的机会。
+   *
+   * 但两者并非完全等价，同环境分支更稳，所以推导规则要偏向它：
+   *   1. 同环境分支不要求角色有 roleCode（跨环境分支没有编码只能跳过）；
+   *   2. 同环境分支只依赖目标环境的枚举，不依赖源环境枚举是否完整。
+   * 规则：宿主字符串相同 → same-env；不同 → cross-env；任一缺失 → null（未采齐）。
+   */
+  function inferMode(srcSnapshot, tgtSnapshot) {
+    if (!srcSnapshot || !tgtSnapshot) return null;
+    var a = srcSnapshot.env && srcSnapshot.env.host;
+    var b = tgtSnapshot.env && tgtSnapshot.env.host;
+    if (!a || !b) return null;
+    return String(a) === String(b) ? 'same-env' : 'cross-env';
+  }
+
   return {
     mapCrossEnv: mapCrossEnv,
     mapSameEnv: mapSameEnv,
@@ -358,6 +378,7 @@
     buildEditPayload: buildEditPayload,
     indexRolesByCode: indexRolesByCode,
     superAdminReason: superAdminReason,
+    inferMode: inferMode,
     appLabel: appLabel,
     roleLabel: roleLabel
   };
