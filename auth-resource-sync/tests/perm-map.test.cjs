@@ -95,6 +95,22 @@ test('角色没有 roleCode 时进 unresolved —— 不按名称猜（核心安
   assert.match(r.unresolved[0].reason, /roleCode/);
 });
 
+test('角色所属应用不在应用列表内 → 提示要指向"管理员权限"，而不是含糊的"不在快照中"', () => {
+  // 实测背景：selectApp 只返回"当前登录人是应用管理员"的应用，
+  // 而 selectAppRole 返回全部角色（mdmtest 实测 235 角色里有 18 个 appId 不在应用列表内）。
+  const src = {
+    apps: [{ id: 11, appCode: 'aps', appName: 'APS' }],
+    roles: [{ id: 201, appId: 99, roleCode: 'orphan-role', roleName: '孤儿角色' }],
+    appIdList: [11],
+    roleIdList: [201]
+  };
+  const r = M.mapCrossEnv(src, TESTENV);
+  assert.strictEqual(r.roleIdList.length, 0);
+  assert.strictEqual(r.unresolved.length, 1);
+  assert.match(r.unresolved[0].reason, /管理员权限/);
+  assert.strictEqual(r.unresolved[0].roleCode, 'orphan-role', '要带上 roleCode 才好定位');
+});
+
 test('目标环境有该应用但没有该角色编码 -> unresolved，不误配同名角色', () => {
   const src = {
     ...DEV,

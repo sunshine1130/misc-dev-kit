@@ -130,7 +130,14 @@
       }
       var sa = srcApps[String(sr.appId)];
       if (!sa) {
-        unresolved.push({ kind: 'role', appId: sr.appId, roleName: sr.roleName, reason: '角色所属应用不在源快照中' });
+        // 实测：selectAppRole 返回的角色远多于 selectApp 返回的应用
+        // （mdmtest 实测 235 个角色里有 18 个 appId 不在应用列表内）。
+        // 原因是 selectApp 只返回"当前登录人是应用管理员"的应用，
+        // 所以这里多半不是数据脏，而是权限裁剪 —— 提示要能指导用户去要权限。
+        unresolved.push({
+          kind: 'role', appId: sr.appId, roleCode: sr.roleCode, roleName: roleLabel(sr),
+          reason: '该角色所属应用不在当前账号可见的应用列表内（应用列表只含你有管理员权限的应用），无法定位其编码'
+        });
         return;
       }
       // 边界 3：角色必须归属"已勾选且成功映射"的应用。两种情况分开报，便于定位。
