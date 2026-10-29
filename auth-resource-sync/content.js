@@ -1231,11 +1231,17 @@
     var hit = (snap.apps || []).filter(function (x) { return String(x.id) === String(id); })[0];
     return hit ? (hit.appCode + (hit.appName ? '(' + hit.appName + ')' : '')) : ('id=' + id);
   }
+  /**
+   * 角色标签必须带应用前缀。
+   * 原因：roleCode 只在单个应用内唯一（实测 liwei 的差异里有 4 个不同角色都叫 admin），
+   * 不带应用就会出现多个看起来完全相同的条目，用户根本无法核对。
+   */
   function labelOfRole(snap, id) {
     var hit = (snap.roles || []).filter(function (x) { return String(x.id) === String(id); })[0];
     if (!hit) return 'id=' + id;
-    if (hit.roleCode) return hit.roleCode + (hit.roleName ? '(' + hit.roleName + ')' : '');
-    return hit.roleName || ('id=' + id);
+    var app = (snap.apps || []).filter(function (x) { return String(x.id) === String(hit.appId); })[0];
+    var core = hit.roleCode || hit.roleName || ('id=' + id);
+    return (app ? app.appCode + '/' : '') + core;
   }
 
   /** 算差异并渲染预览。这是执行前的最后一道人工确认关卡。 */
@@ -1269,9 +1275,10 @@
     if (plan.unresolved.length) {
       html += '<div class="as-pv-title">\u26A0 无法映射（将跳过，需人工处理）</div>';
       plan.unresolved.forEach(function (u) {
+        // 角色同样带应用前缀，否则多个应用的 roleCode 重名时无法区分
         var who = u.kind === 'app'
           ? ('应用 ' + (u.appCode || u.code || ''))
-          : ('角色 ' + (u.roleCode || u.roleName || u.code || '') + (u.appCode ? ' @ ' + u.appCode : ''));
+          : ('角色 ' + (u.appCode ? u.appCode + '/' : '') + (u.roleCode || u.roleName || u.code || ''));
         html += '<div class="as-pv-unres">\u2022 ' + escHtml(who) + ' —— ' + escHtml(u.reason) + '</div>';
       });
     }
