@@ -370,6 +370,34 @@
     return String(a) === String(b) ? 'same-env' : 'cross-env';
   }
 
+  // 环境配色：同一环境恒定同一颜色，用于在面板上一眼区分源/目标来自哪个环境。
+  // 为什么先按命名约定匹配、而不是直接哈希：哈希只有很小的色板，dev 和 test
+  // 一旦撞色就完全失去区分意义 —— 而这正是这个功能存在的理由。
+  var ENV_FIXED_COLORS = [
+    { re: /prod|prd/i, color: '#cf1322' },        // 生产：红
+    { re: /uat|stg|staging/i, color: '#fa8c16' }, // 预发：橙
+    { re: /test/i, color: '#389e0d' },            // 测试：绿
+    { re: /dev/i, color: '#1890ff' }              // 开发：蓝
+  ];
+  // 未命中约定时按宿主哈希取色，保证同一宿主每次都得到同一个颜色
+  var ENV_FALLBACK_COLORS = ['#722ed1', '#eb2f96', '#13c2c2', '#2f54eb', '#a0d911', '#f5222d'];
+
+  function envColor(host) {
+    host = String(host || '');
+    for (var i = 0; i < ENV_FIXED_COLORS.length; i++) {
+      if (ENV_FIXED_COLORS[i].re.test(host)) return ENV_FIXED_COLORS[i].color;
+    }
+    var h = 0;
+    for (var j = 0; j < host.length; j++) h = (h * 31 + host.charCodeAt(j)) >>> 0;
+    return ENV_FALLBACK_COLORS[h % ENV_FALLBACK_COLORS.length];
+  }
+
+  /** 取宿主首段作为环境简称，如 mdmdev-auth.joyintoy.cn -> mdmdev-auth */
+  function shortEnv(host) {
+    var s = String(host || '');
+    return s ? s.split('.')[0] : '';
+  }
+
   return {
     mapCrossEnv: mapCrossEnv,
     mapSameEnv: mapSameEnv,
@@ -379,6 +407,8 @@
     indexRolesByCode: indexRolesByCode,
     superAdminReason: superAdminReason,
     inferMode: inferMode,
+    envColor: envColor,
+    shortEnv: shortEnv,
     appLabel: appLabel,
     roleLabel: roleLabel
   };

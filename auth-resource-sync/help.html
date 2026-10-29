@@ -110,6 +110,18 @@
   </table>
   <p class="dim">为什么不用手选：同一环境下「按编码映射」只是把 ID 翻译成编码再翻回来，结果一样，反而多一个选错的机会。</p>
 
+  <div class="note">
+    <strong>怎么确认源数据是从哪个环境采集的：</strong>两个环境经常存在<strong>同名账号</strong>
+    （比如 dev 和 test 都有 <code>liwei</code>），只看账号名分不清是哪个环境。
+    所以每个输入框会按<strong>环境着色</strong>，并在旁边显示环境简称，鼠标悬停可看完整域名；
+    快照摘要里的环境名用的是同一个颜色。
+    <br><br>
+    配色规则（同一环境恒定同色）：<span style="color:#1890ff;font-weight:600">dev 蓝</span> /
+    <span style="color:#389e0d;font-weight:600">test 绿</span> /
+    <span style="color:#fa8c16;font-weight:600">uat 橙</span> /
+    <span style="color:#cf1322;font-weight:600">prod 红</span>，其他环境按域名哈希取色。
+  </div>
+
   <h3>跨环境怎么操作</h3>
   <ol>
     <li>在<strong>源环境</strong>打开用户管理页 → 填源账号 → <code>采集源账号</code></li>

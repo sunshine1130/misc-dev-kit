@@ -566,6 +566,22 @@
   border-color: #d3adf7;
 }
 
+/* 环境徽标：显示该快照采集自哪个环境，颜色与对应输入框保持一致 */
+.as-env-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1.7;
+  padding: 1px 8px;
+  border-radius: 9px;
+  border: 1px solid #e8e8e8;
+  background: #fafafa;
+  color: #bbb;
+  white-space: nowrap;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ========== 用户权限同步面板 ========== */
 .as-user-body {
   flex: 1;

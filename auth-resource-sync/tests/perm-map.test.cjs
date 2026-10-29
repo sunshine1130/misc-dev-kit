@@ -322,5 +322,41 @@ test('任一快照缺失或取不到宿主 → null（未采齐，不猜）', ()
   assert.strictEqual(M.inferMode({ env: { host: 'a' } }, {}), null);
 });
 
+console.log('\n[envColor] 环境配色（同名账号来自哪个环境，一眼可辨）');
+
+test('dev / test / uat / prod 各自稳定且互不相同', () => {
+  const dev = M.envColor('mdmdev-auth.joyintoy.cn');
+  const tst = M.envColor('mdmtest-auth.joyintoy.cn');
+  const uat = M.envColor('uat.joyintoy.cn');
+  const prd = M.envColor('prod-auth.joyintoy.cn');
+  const all = [dev, tst, uat, prd];
+  assert.strictEqual(new Set(all).size, 4, '四个环境的颜色必须互不相同：' + all.join(', '));
+  assert.strictEqual(dev, M.envColor('dev.joyintoy.cn'), '同为 dev 的环境应同色');
+  assert.strictEqual(tst, M.envColor('test.joyintoy.cn'), '同为 test 的环境应同色');
+});
+
+test('同一宿主每次取色一致（不能一次蓝一次绿）', () => {
+  for (const h of ['mdmdev-auth.joyintoy.cn', 'mdmtest-auth.joyintoy.cn', 'weird-host.internal']) {
+    assert.strictEqual(M.envColor(h), M.envColor(h));
+  }
+});
+
+test('未命中命名约定时回退哈希取色，且仍是合法色值', () => {
+  const c = M.envColor('something-unusual.example.com');
+  assert.match(c, /^#[0-9a-f]{6}$/i);
+  assert.strictEqual(c, M.envColor('something-unusual.example.com'));
+});
+
+test('空宿主不炸', () => {
+  assert.match(M.envColor(''), /^#[0-9a-f]{6}$/i);
+  assert.match(M.envColor(null), /^#[0-9a-f]{6}$/i);
+});
+
+test('环境简称取宿主首段', () => {
+  assert.strictEqual(M.shortEnv('mdmdev-auth.joyintoy.cn'), 'mdmdev-auth');
+  assert.strictEqual(M.shortEnv('mdmtest-auth.joyintoy.cn'), 'mdmtest-auth');
+  assert.strictEqual(M.shortEnv(''), '');
+});
+
 console.log('\n结果: ' + passed + ' 通过, ' + failed + ' 失败');
 process.exit(failed === 0 ? 0 : 1);

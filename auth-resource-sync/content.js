@@ -1464,6 +1464,15 @@
       }
     }
 
+    // 输入框按环境着色 + 徽标显示环境简称。
+    // 两个环境常有同名账号，这是唯一能一眼确认"源数据采自哪"的手段。
+    applyEnvStyle('as-src-account', 'as-src-env', srcSnapshot);
+    applyEnvStyle('as-tgt-account', 'as-tgt-env', tgtSnapshot);
+    // 跨环境时源快照是在另一个标签页采集的，这里把账号名回填，
+    // 否则切过来只看到空的源输入框，会误以为没采到。
+    restoreAccountInput('as-src-account', srcSnapshot);
+    restoreAccountInput('as-tgt-account', tgtSnapshot);
+
     var snapEl = document.getElementById('as-user-snap');
     if (snapEl) {
       snapEl.innerHTML = [
@@ -1493,13 +1502,76 @@
     if (cap2) cap2.disabled = _userBusy;
   }
 
+  /** #rrggbb -> rgba(...)，用于给环境徽标上很浅的底色 */
+  function hexToRgba(hex, alpha) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length !== 6) return 'transparent';
+    var r = parseInt(h.substring(0, 2), 16);
+    var g = parseInt(h.substring(2, 4), 16);
+    var b = parseInt(h.substring(4, 6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  /**
+   * 把「这个快照来自哪个环境」可视化到对应输入框上。
+   *
+   * 为什么必须做：两个环境常有同名账号，两个输入框里都写着 testAPSAuth，
+   * 只凭账号文字根本分不清源数据采自哪个环境 —— 这会直接导致改错环境的操作事故。
+   * 颜色由 AuthPermMap.envColor(host) 决定：同一环境恒定同色，
+   * dev/test/uat/prod 按命名约定取固定色，避免撞色。
+   */
+  function applyEnvStyle(inputId, badgeId, snap) {
+    var input = document.getElementById(inputId);
+    var badge = document.getElementById(badgeId);
+    if (!input || !badge) return;
+
+    if (!snap) {
+      input.style.borderColor = '';
+      input.style.color = '';
+      input.style.fontWeight = '';
+      badge.textContent = '未采集';
+      badge.style.color = '#bbb';
+      badge.style.borderColor = '#e8e8e8';
+      badge.style.background = '#fafafa';
+      badge.title = '尚未采集';
+      return;
+    }
+
+    var host = (snap.env && snap.env.host) || '';
+    var color = AuthPermMap.envColor(host);
+    input.style.borderColor = color;
+    input.style.color = color;
+    input.style.fontWeight = '600';
+    badge.textContent = AuthPermMap.shortEnv(host) || host;
+    badge.style.color = color;
+    badge.style.borderColor = color;
+    badge.style.background = hexToRgba(color, 0.1);
+    badge.title = '采集自 ' + host;
+  }
+
+  /**
+   * 输入框为空时用快照里的账号回填。
+   * 两个限制条件都不能省：
+   *   1. 只在为空时回填 —— 绝不覆盖用户已经输入/粘贴的内容；
+   *   2. 正在输入时不回填 —— refreshPanel 触发很频繁，否则会和用户抢输入框。
+   */
+  function restoreAccountInput(inputId, snap) {
+    var input = document.getElementById(inputId);
+    if (!input || !snap) return;
+    if (input.value) return;
+    if (document.activeElement === input) return;
+    input.value = snap.account || '';
+  }
+
   function snapshotLine(role, snap) {
     if (!snap) return role + '：<span class="as-snap-warn">未采集</span>';
     var mins = Math.round((Date.now() - snap.capturedAt) / 60000);
     var stale = mins > 1440
       ? ' <span class="as-snap-warn">(采集于 ' + Math.round(mins / 60) + ' 小时前，建议重新采集)</span>'
       : '';
-    return role + '：<b>' + escHtml(snap.account) + '</b> @ ' + escHtml(snap.env.host) +
+    var color = AuthPermMap.envColor(snap.env && snap.env.host);
+    return role + '：<b>' + escHtml(snap.account) + '</b> @ ' +
+           '<span style="color:' + color + ';font-weight:600">' + escHtml(snap.env.host) + '</span>' +
            '　应用 ' + snap.appIdList.length + ' / 角色 ' + snap.roleIdList.length +
            '　<span class="as-snap-ok">已采集</span>' + stale;
   }
@@ -1614,11 +1686,15 @@
               '<div class="as-user-row">' +
                 '<span class="as-label" id="as-src-label">源账号:</span>' +
                 '<input id="as-src-account" class="as-user-input" placeholder="输入账号，如 testAPSAuth" />' +
+                // 环境徽标：两个环境常有同名账号，只显示账号名无法分辨采集自哪个环境，
+                // 所以把环境简称贴在输入框旁，并让输入框与该环境同色（见 applyEnvStyle）
+                '<span id="as-src-env" class="as-env-badge">未采集</span>' +
                 '<button id="as-capture-src" class="as-btn as-btn-sm">\uD83D\uDCE5 采集源账号</button>' +
               '</div>' +
               '<div class="as-user-row">' +
                 '<span class="as-label">目标账号:</span>' +
                 '<input id="as-tgt-account" class="as-user-input" placeholder="输入账号" />' +
+                '<span id="as-tgt-env" class="as-env-badge">未采集</span>' +
                 '<button id="as-capture-tgt" class="as-btn as-btn-sm">\uD83D\uDCE5 采集目标账号</button>' +
               '</div>' +
               '<div class="as-user-snap" id="as-user-snap">\u2460 先采集源账号，\u2461 再采集目标账号</div>' +
