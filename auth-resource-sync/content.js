@@ -162,6 +162,7 @@
         syncMode = d.syncMode || 'batch';
         srcSnapshot = d.srcSnapshot || null;
         tgtSnapshot = d.tgtSnapshot || null;
+        lastUserSync = d.lastUserSync || null;
         log('[Auth Sync] Loaded: dev ' + countNodes(devTree) + ' nodes, test ' + countNodes(testTree) + ' nodes');
         return true;
       }
@@ -187,6 +188,7 @@
         syncMode: syncMode,
         srcSnapshot: srcSnapshot,
         tgtSnapshot: tgtSnapshot,
+        lastUserSync: lastUserSync,
         lastUpdated: Date.now()
       };
       await chrome.storage.local.set(obj);
@@ -215,6 +217,7 @@
     tgtSnapshot = null;
     _userPlan = null;
     _restoredAt = { src: 0, tgt: 0 };
+    lastUserSync = null;
     syncLog = [];
     selectedTestNodeId = null;
     syncStatus = 'idle';
@@ -1164,6 +1167,9 @@
   var tgtSnapshot = null;           // 目标账号快照（被修改的那个）
   var _userPlan = null;             // 最近一次算出的执行计划
   var _userBusy = false;
+  // 最近一次「用户权限同步」的写入记录（执行前的值 + 执行后的值）。
+  // 存在的唯一目的是提供一键撤销 —— 见 rollbackLastUserSync 的注释。
+  var lastUserSync = null;
 
   /** 当前该用哪条映射路径；未采齐时返回 null */
   function currentMode() {
@@ -1246,7 +1252,8 @@
     if (!window.confirm(
       '\u26A0 当前环境「' + host + '」是' + AuthPermMap.envLabel(host) + '环境，默认禁止写入。\n\n' +
       '开启后将允许本扩展修改该环境的账号权限 ——\n' +
-      '这是真实数据，改错无法自动回滚。\n\n' +
+      '这是真实数据，改动会立即生效。\n' +
+      '（用户权限同步可用「撤销上次同步」回退，资源同步没有撤销。）\n\n' +
       '确定要开启吗？'
     )) return;
 
@@ -1649,12 +1656,39 @@
       var wantRoles = _userPlan.roleIdList.slice().sort().join(',');
       var gotApps = (after.appIdList || []).slice().sort().join(',');
       var gotRoles = (after.roleIdList || []).slice().sort().join(',');
-      if (wantApps === gotApps && wantRoles === gotRoles) {
+      var verified = (wantApps === gotApps && wantRoles === gotRoles);
+      if (verified) {
         addLog('[用户同步] \u2714 回读校验通过：应用 ' + (after.appIdList || []).length +
                ' 个 / 角色 ' + (after.roleIdList || []).length + ' 个', 'success');
       } else {
         addLog('[用户同步] \u2716 回读不一致！期望应用[' + wantApps + '] 实际[' + gotApps +
                ']；期望角色[' + wantRoles + '] 实际[' + gotRoles + ']', 'error');
+      }
+
+      // 落一条可撤销记录：before 来自提交前那次 fresh（不是更早的预览快照 ——
+      // 中间已经被"权限在预览之后被改动"这道校验确认与预览一致，但 fresh 才是
+      // 实际被覆盖掉的那份值）。只保留最近一次，撤销即消费掉。
+      lastUserSync = {
+        at: Date.now(),
+        host: window.location.hostname,
+        account: tgtSnapshot.account,
+        userId: tgtSnapshot.userId,
+        before: {
+          appIdList: (fresh.appIdList || []).slice(),
+          roleIdList: (fresh.roleIdList || []).slice()
+        },
+        after: {
+          appIdList: (after.appIdList || []).slice(),
+          roleIdList: (after.roleIdList || []).slice()
+        },
+        srcHost: (srcSnapshot && srcSnapshot.env && srcSnapshot.env.host) || '',
+        srcAccount: (srcSnapshot && srcSnapshot.account) || '',
+        // 回读没通过说明线上实际值未知，撤销前那道"当前值 == after"的校验
+        // 会因此不通过；把标记带上是为了给出准确的原因，而不是笼统说"被改过"
+        verified: verified
+      };
+      if (!verified) {
+        addLog('[用户同步] \u26A0 回读未通过，撤销功能可能不可用（当前值未知）', 'warn');
       }
 
       // 顺带自检基础信息有没有被这次提交改掉（read-modify-write 的正确性）
@@ -1676,6 +1710,155 @@
       _userBusy = false;
       refreshPanel();
     }
+  }
+
+  /**
+   * 撤销上一次「用户权限同步」：把目标账号的应用/角色写回执行前的那份值。
+   *
+   * 为什么必须有：诉求 B 是「拿别人的权限覆盖自己」，最坏情况是连自己身上的
+   * 用户管理权限一起被移除，人就被锁在权限管理页之外了。执行前的 confirm 里
+   * 警告「不可逆」只是提醒，真正能救人的是这条能点得动的退路。
+   *
+   * 为什么要卡「当前值必须等于记录里的 after」：
+   *   撤销本质是把权限整体覆盖回去。若这期间别人合规地改过这个账号，无条件回写
+   *   就会连别人的修改一起抹掉 —— 那是比"自己改错"更严重的事故。所以这里宁可
+   *   拒绝，并让人去页面人工核对。
+   *
+   * 为什么只留最近一次、且用掉即清：撤销本身也是一次覆盖写，留一串历史会引出
+   * "撤销撤销"的语义，没人能说清点下去会发生什么。要重做就重新走一次同步。
+   */
+  async function rollbackLastUserSync() {
+    if (_userBusy) return;
+
+    var rec = lastUserSync;
+    if (!rec) { addLog('[撤销] 没有可撤销的同步记录', 'warn'); refreshPanel(); return; }
+
+    // 落记录时就记了宿主：userId / appId / roleId 都只在那个环境里有意义
+    var host = window.location.hostname;
+    if (String(rec.host).toLowerCase() !== host.toLowerCase()) {
+      addLog('[撤销] 上次同步发生在 ' + rec.host + '，请切回该环境再撤销', 'error');
+      refreshPanel(); return;
+    }
+
+    // 与执行同步同一道只读闸：撤销也是真实写入，不能因为"是回退"就放行
+    var blocked = writeBlockedReason();
+    if (blocked) { addLog('[撤销] 已阻止写入：' + blocked, 'error'); refreshPanel(); return; }
+
+    var diff = describeRollback(rec);
+    var msg = '确认撤销上一次同步，把账号「' + rec.account + '」恢复为执行前的权限？\n\n' +
+              '执行时间：' + new Date(rec.at).toLocaleString() + '\n' +
+              '执行环境：' + rec.host + '\n' +
+              (rec.srcAccount ? '当时源账号：' + rec.srcAccount +
+                                (rec.srcHost ? ' @ ' + rec.srcHost : '') + '\n' : '') +
+              '\n应用：恢复 ' + diff.addApps + ' 项 / 移除 ' + diff.delApps + ' 项\n' +
+              '角色：恢复 ' + diff.addRoles + ' 项 / 移除 ' + diff.delRoles + ' 项\n';
+    if (diff.delApps || diff.delRoles) {
+      msg += '\n⚠ 将会移除 ' + diff.delApps + ' 个应用、' + diff.delRoles + ' 个角色' +
+             '（即上次同步新加的那些）。\n';
+    }
+    msg += '\n用户基础信息（姓名/部门/手机号/邮箱等）不会改动。';
+    if (!rec.verified) {
+      msg += '\n\n⚠ 上次同步的回读校验未通过，账号当前值可能与记录不一致，' +
+             '撤销大概率会被安全校验拦下。';
+    }
+
+    if (!window.confirm(msg)) { addLog('[撤销] 已取消', 'warn'); return; }
+
+    var totalRemoved = diff.delApps + diff.delRoles;
+    if (totalRemoved > REMOVAL_CONFIRM_THRESHOLD) {
+      var typed = window.prompt(
+        '\u26A0 撤销将移除 ' + totalRemoved + ' 项权限（应用 ' + diff.delApps +
+        ' / 角色 ' + diff.delRoles + '），已超过安全阈值 ' + REMOVAL_CONFIRM_THRESHOLD + ' 项。\n\n' +
+        '确认要继续，请输入目标账号名：' + rec.account,
+        ''
+      );
+      if (typed === null) { addLog('[撤销] 已取消（未做阈值确认）', 'warn'); return; }
+      if (String(typed).trim() !== String(rec.account)) {
+        addLog('[撤销] 输入的账号名与目标不一致，已取消', 'error'); return;
+      }
+    }
+
+    _userBusy = true; refreshPanel();
+    try {
+      var fresh = await apiCall('/auth2/user/selectUserDetail', { userId: rec.userId });
+      if (!fresh || (fresh.userId === undefined && fresh.id === undefined)) {
+        throw new Error('读取账号「' + rec.account + '」详情失败，已中止');
+      }
+
+      var norm = function (a) { return JSON.stringify((Array.isArray(a) ? a : []).map(String).sort()); };
+      var drifted = norm(fresh.appIdList) !== norm(rec.after.appIdList) ||
+                    norm(fresh.roleIdList) !== norm(rec.after.roleIdList);
+      if (drifted) {
+        throw new Error(rec.verified
+          ? '账号「' + rec.account + '」在我上次同步之后又被改动过，自动撤销会连带覆盖这些改动；' +
+            '请到权限管理页面手动核对'
+          : '账号「' + rec.account + '」当前权限与上次同步的回读结果不一致（上次回读未通过），' +
+            '状态未知，已中止；请到权限管理页面手动核对');
+      }
+
+      // 基础字段取自 fresh，只有 appIdList/roleIdList 换成记录里的 before —— 与
+      // 执行同步走同一个载荷构造，保证"撤销"不会引入同步路径之外的新写法
+      var payload = AuthPermMap.buildEditPayload(fresh, rec.before.appIdList, rec.before.roleIdList);
+      await apiCall('/auth2/user/editUser', payload);
+      addLog('[撤销] 已提交 editUser（应用 ' + payload.appIdList.length +
+             ' / 角色 ' + payload.roleIdList.length + '）', 'success');
+
+      var after = await apiCall('/auth2/user/selectUserDetail', { userId: rec.userId });
+      var wantA = rec.before.appIdList.slice().sort().join(',');
+      var wantR = rec.before.roleIdList.slice().sort().join(',');
+      var gotA = (after.appIdList || []).slice().sort().join(',');
+      var gotR = (after.roleIdList || []).slice().sort().join(',');
+      if (wantA === gotA && wantR === gotR) {
+        addLog('[撤销] \u2714 已恢复到执行前：应用 ' + (after.appIdList || []).length +
+               ' 个 / 角色 ' + (after.roleIdList || []).length + ' 个', 'success');
+        // 撤销成功即消费掉记录：再点一次没有明确语义
+        lastUserSync = null;
+      } else {
+        // 保留记录，让人还能再试一次 —— 但当前值已不等于 after，下次会被
+        // drifted 校验拦下，所以这里提示改用手工处理
+        addLog('[撤销] \u2716 回读不一致！期望应用[' + wantA + '] 实际[' + gotA +
+               ']；期望角色[' + wantR + '] 实际[' + gotR + ']', 'error');
+        addLog('[撤销] 未能恢复到执行前状态，请到权限管理页面手动核对', 'error');
+      }
+
+      // 撤销改的就是目标账号，快照必须跟着更新，否则预览区还显示旧差异
+      if (tgtSnapshot && String(tgtSnapshot.userId) === String(rec.userId)) {
+        tgtSnapshot.detail = after;
+        tgtSnapshot.appIdList = after.appIdList || [];
+        tgtSnapshot.roleIdList = after.roleIdList || [];
+      }
+      _userPlan = null;
+      await saveStoredData();
+      renderUserPreview();
+    } catch (e) {
+      addLog('[撤销] 失败：' + e.message, 'error');
+    } finally {
+      _userBusy = false;
+      refreshPanel();
+    }
+  }
+
+  /**
+   * 算出「恢复到 before」相对当前（= 记录里的 after）会增删哪些项。
+   * 只用记录里的两份 ID 列表，不发请求 —— 确认框必须在任何网络动作之前就能把
+   * 规模讲清楚，否则阈值确认放的是一道没有数字的空闸。
+   */
+  function describeRollback(rec) {
+    var beforeApps = {}, beforeRoles = {}, afterApps = {}, afterRoles = {};
+    (rec.before.appIdList || []).forEach(function (x) { beforeApps[String(x)] = 1; });
+    (rec.before.roleIdList || []).forEach(function (x) { beforeRoles[String(x)] = 1; });
+    (rec.after.appIdList || []).forEach(function (x) { afterApps[String(x)] = 1; });
+    (rec.after.roleIdList || []).forEach(function (x) { afterRoles[String(x)] = 1; });
+    var count = function (ids, seen) {
+      return (ids || []).filter(function (x) { return !seen[String(x)]; }).length;
+    };
+    return {
+      // 恢复 = 回到 before，所以"要加回的"是 before 里 after 没有的
+      addApps: count(rec.before.appIdList, afterApps),
+      addRoles: count(rec.before.roleIdList, afterRoles),
+      delApps: count(rec.after.appIdList, beforeApps),
+      delRoles: count(rec.after.roleIdList, beforeRoles)
+    };
   }
 
   function resetUserSync() {
@@ -1820,6 +2003,24 @@
         execBtn.textContent = '\u26A1 执行同步 (+' + add + ' / -' + del + ')';
       } else {
         execBtn.textContent = '\u26A1 执行同步';
+      }
+    }
+
+    // 撤销按钮：有记录才显示。跨环境时不能直接点 ——
+    // 记录里的 userId / appId / roleId 只在它当初那个环境里有意义。
+    var undoBtn = document.getElementById('as-user-undo');
+    if (undoBtn) {
+      if (!lastUserSync) {
+        undoBtn.style.display = 'none';
+      } else {
+        var sameHost = String(lastUserSync.host).toLowerCase() ===
+                       window.location.hostname.toLowerCase();
+        undoBtn.style.display = '';
+        undoBtn.disabled = _userBusy || !sameHost;
+        undoBtn.textContent = '\u21A9 撤销上次同步 (' + lastUserSync.account + ')';
+        undoBtn.title = sameHost
+          ? ('恢复到 ' + new Date(lastUserSync.at).toLocaleString() + ' 执行前的权限')
+          : ('上次同步发生在 ' + lastUserSync.host + '，请切回该环境再撤销');
       }
     }
 
@@ -2043,6 +2244,9 @@
               '<div class="as-user-actions">' +
                 '<button id="as-user-refresh" class="as-btn as-btn-primary as-btn-sm">\uD83D\uDD04 刷新差异预览</button>' +
                 '<button id="as-user-exec" class="as-btn as-btn-success as-btn-sm" disabled>\u26A1 执行同步</button>' +
+                // 撤销入口默认隐藏：没有可撤销记录时露出一个点不动的按钮，
+                // 只会让人以为功能坏了。有记录时才由 renderUserPane 显示出来。
+                '<button id="as-user-undo" class="as-btn as-btn-sm" style="display:none">\u21A9 撤销上次同步</button>' +
                 '<button id="as-user-reset" class="as-btn as-btn-danger as-btn-sm">\uD83D\uDDD1 清空</button>' +
               '</div>' +
             '</div>' +
@@ -2096,6 +2300,7 @@
       bindClick('as-capture-tgt', function () { captureUserSnapshot('tgt'); });
       bindClick('as-user-refresh', function () { renderUserPreview(); });
       bindClick('as-user-exec', function () { executeUserSync(); });
+      bindClick('as-user-undo', function () { rollbackLastUserSync(); });
       bindClick('as-user-reset', function () { resetUserSync(); });
       // 账号输入框被改动就立刻作废已采集的预览，避免按旧快照改错账号
       ['as-src-account', 'as-tgt-account'].forEach(function (id) {

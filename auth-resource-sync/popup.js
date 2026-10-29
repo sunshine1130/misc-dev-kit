@@ -87,6 +87,22 @@
     };
   }
 
+  /** 同上：只挑与权限变更相关的字段，绝不整对象 dump（防以后加了 detail 之类带出个人信息） */
+  function trimUserSyncRecord(r) {
+    if (!r) return null;
+    return {
+      at: r.at,
+      host: r.host,
+      account: r.account,
+      userId: r.userId,
+      before: r.before,
+      after: r.after,
+      srcHost: r.srcHost,
+      srcAccount: r.srcAccount,
+      verified: r.verified
+    };
+  }
+
   function exportData(data) {
     var clean = {
       sourceAppId: data.devAppId || data.sourceAppId,
@@ -110,6 +126,10 @@
         source: trimSnapshot(data.srcSnapshot || data.sourceSnapshot),
         target: trimSnapshot(data.tgtSnapshot || data.targetSnapshot)
       },
+      // 最近一次用户权限同步的写入记录（写入前后的 ID 列表）。
+      // 它本身不含手机号/邮箱等 detail 字段，可原样导出，作为"谁在哪个环境
+      // 对哪个账号做了什么改动"的追责依据；只保留最近一次，故是单条而非历史。
+      lastUserSync: trimUserSyncRecord(data.lastUserSync),
       exportedAt: new Date().toISOString()
     };
 
