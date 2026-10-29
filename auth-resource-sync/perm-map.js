@@ -397,10 +397,10 @@
   // 为什么是"白名单 + 默认拒绝"而不是"排除 prod"：
   //   漏判一个生产域名 = 可能真的改掉线上权限；误判一个测试域名 = 多点一次的事。
   //   两者代价完全不对等，所以默认取安全的那一侧。
-  // 为什么 uat 不在白名单：公司口径是 dev/test/uat/prod 四套环境，uat 已是准生产
-  //   （业务方在上面验收），按"生产"对待更符合直觉 —— 需要写时手动开豁免即可。
+  // 白名单含 uat：用户确认 uat 本质仍是测试环境（业务方在上面验收，改错可重来）。
+  //   真正要挡的是生产 —— 即不带环境前缀的 auth.joyintoy.cn（见 PROD_HOST_RE）。
   // 只看宿主首段：避免把 ".com"、"--" 之类误当关键字命中。
-  var WRITABLE_LABEL_RE = /(dev|test|sit)/i;
+  var WRITABLE_LABEL_RE = /(dev|test|sit|uat)/i;
 
   function isWriteAllowed(host) {
     host = String(host || '').toLowerCase();
@@ -422,7 +422,7 @@
   var ENV_LABELS = [
     { re: /prod|prd/i, label: '生产' },
     { re: /stg|staging/i, label: '预发' },
-    { re: /uat/i, label: '验收（准生产）' },
+    { re: /uat/i, label: '验收测试' },
     { re: /sit/i, label: '集成测试' },
     { re: /test/i, label: '测试' },
     { re: /dev/i, label: '开发' }
@@ -445,9 +445,9 @@
   function writeBlockReason(host) {
     if (isWriteAllowed(host)) return '';
     var h = String(host || '未知环境');
+    // 不逐个列举可写环境：那是会随白名单调整而漂移的信息，说"开发/测试类"即可
     return '「' + h + '」是' + envLabel(h) + '环境，默认只读、禁止写入。' +
-           '可写环境只有开发 / 测试 / 集成测试（另放行 localhost）；' +
-           '确有需要可在面板头部点「开启写入」临时豁免。';
+           '只有开发/测试类环境允许写入；确有需要可在面板头部点「开启写入」临时豁免。';
   }
 
   return {

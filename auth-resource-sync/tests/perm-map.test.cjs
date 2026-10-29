@@ -360,19 +360,17 @@ test('环境简称取宿主首段', () => {
 
 console.log('\n[isWriteAllowed] 环境只读白名单（生产默认只读）');
 
-test('开发/测试类环境允许写入', () => {
+test('开发/测试类环境允许写入（含 uat —— 用户确认 uat 本质仍是测试环境）', () => {
   for (const h of ['mdmdev-auth.joyintoy.cn', 'mdmtest-auth.joyintoy.cn', 'dev.joyintoy.cn',
-                   'test.joyintoy.cn', 'sit.joyintoy.cn',
+                   'test.joyintoy.cn', 'sit.joyintoy.cn', 'uat.joyintoy.cn', 'uat-auth.joyintoy.cn',
                    'localhost', 'localhost:8080', '127.0.0.1']) {
     assert.strictEqual(M.isWriteAllowed(h), true, h + ' 应允许写入');
   }
 });
 
-test('uat / stg / 生产与其他不认识的宿主一律只读（默认拒绝）', () => {
-  // uat 刻意不在白名单：公司口径是 dev/test/uat/prod 四套环境，uat 已是准生产
-  // （业务方在上面验收），按"生产"对待更符合直觉。需要写时手动开豁免。
-  for (const h of ['uat.joyintoy.cn', 'uat-auth.joyintoy.cn', 'stg.joyintoy.cn',
-                   'auth.joyintoy.cn', 'api.joyintoy.cn', 'joyintoy.cn',
+test('生产 / 预发 / 未知宿主一律只读（默认拒绝）', () => {
+  for (const h of ['auth.joyintoy.cn', 'www.joyintoy.cn', 'api.joyintoy.cn', 'joyintoy.cn',
+                   'stg.joyintoy.cn', 'staging.joyintoy.cn',
                    'prod-auth.joyintoy.cn', 'mdmprod-auth.joyintoy.cn', 'prd.joyintoy.cn',
                    'something.example.com', '']) {
     assert.strictEqual(M.isWriteAllowed(h), false, h + ' 应被判定为只读');
@@ -406,7 +404,7 @@ test('各环境标签如实反映是哪一类环境', () => {
   assert.strictEqual(M.envLabel('mdmdev-auth.joyintoy.cn'), '开发');
   assert.strictEqual(M.envLabel('mdmtest-auth.joyintoy.cn'), '测试');
   assert.strictEqual(M.envLabel('sit-auth.joyintoy.cn'), '集成测试');
-  assert.strictEqual(M.envLabel('uat-auth.joyintoy.cn'), '验收（准生产）');
+  assert.strictEqual(M.envLabel('uat-auth.joyintoy.cn'), '验收测试');
   assert.strictEqual(M.envLabel('stg-auth.joyintoy.cn'), '预发');
 });
 
@@ -424,10 +422,11 @@ test('本地与未知环境', () => {
   assert.strictEqual(M.envLabel(''), '未知');
 });
 
-test('拒绝写入的文案带上真实环境类型，且不含"所有只读环境都是生产"的错误暗示', () => {
-  const uat = M.writeBlockReason('uat-auth.joyintoy.cn');
-  assert.match(uat, /验收（准生产）/);
-  assert.ok(uat.indexOf('是生产环境') === -1, 'uat 的文案不该说自己是生产');
+test('拒绝写入的文案带上真实环境类型，且不把非生产环境说成生产', () => {
+  assert.strictEqual(M.writeBlockReason('uat-auth.joyintoy.cn'), '', 'uat 可写，不该有拒绝文案');
+  const stg = M.writeBlockReason('stg-auth.joyintoy.cn');
+  assert.match(stg, /预发/);
+  assert.ok(stg.indexOf('是生产环境') === -1, 'stg 的文案不该说自己是生产');
   const prd = M.writeBlockReason('auth.joyintoy.cn');
   assert.match(prd, /是生产环境/);
 });
