@@ -3,7 +3,7 @@
 团队自用的 Chrome 扩展统一放这里，**clone 一次，以后 `git pull` 就更新**，
 不用再「打包 zip → 发给人 → 对方解压 → 加载」。
 
-仓库地址：`https://github.com/sunshine1130/google-extensions`
+仓库地址：`https://github.com/sunshine1130/misc-dev-kit`
 
 > 🔓 **本仓库是公开仓库，无需 GitHub 账号即可 clone。**
 > 因此请只提交扩展运行必需的文件；**不要**往这里放内部文档、需求资料、账号口令、内网拓扑等资料。
@@ -24,7 +24,7 @@
 **1. 克隆到固定目录**（不需要登录）
 
 ```bash
-git clone https://github.com/sunshine1130/google-extensions.git D:\tools\Google插件
+git clone https://github.com/sunshine1130/misc-dev-kit.git D:\tools\Google插件
 ```
 
 路径**不要随便改**——Chrome 记住的是加载时那个目录，改名后要重新加载一次。
@@ -74,7 +74,7 @@ git push
 
 > 推送需要 GitHub 身份。若弹窗登录失败，可改用 PAT（GitHub → Settings → Developer settings →
 > Personal access tokens，勾选 `repo` 权限，token 只显示一次）：
-> `git remote set-url origin https://<你的PAT>@github.com/sunshine1130/google-extensions.git`
+> `git remote set-url origin https://<你的PAT>@github.com/sunshine1130/misc-dev-kit.git`
 
 ---
 
