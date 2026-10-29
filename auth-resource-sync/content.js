@@ -238,11 +238,18 @@
   async function getApiBaseOrigin() {
     if (_apiBaseOrigin) return _apiBaseOrigin;
 
-    // 1. 尝试从 inject.js 缓存的 XHR 拦截 URL 中提取 API origin
+    // 1. 最权威的来源：inject.js 拦截到的真实 /auth2 请求地址。
+    //    比按域名猜可靠，也是唯一能覆盖 xxx-auth.joyintoy.cn 这类命名的方式。
     try {
       var cachedResp = await sendToInject({ type: 'GET_CACHED_DATA' });
-      if (cachedResp && cachedResp.payload && cachedResp.payload.resourceTree && cachedResp.payload.resourceTree.url) {
-        var url = cachedResp.payload.resourceTree.url;
+      var p = cachedResp && cachedResp.payload;
+      if (p && p.auth2Origin) {
+        _apiBaseOrigin = p.auth2Origin;
+        log('[Auth Sync] API origin from intercepted request: ' + _apiBaseOrigin);
+        return _apiBaseOrigin;
+      }
+      if (p && p.resourceTree && p.resourceTree.url) {
+        var url = p.resourceTree.url;
         // URL 可能是相对路径 '/auth2/...' 或完整 URL
         if (url.indexOf('http') === 0) {
           _apiBaseOrigin = new URL(url).origin;
@@ -252,22 +259,19 @@
       }
     } catch (e) {}
 
-    // 2. 根据前端域名推断 API 域名
-    //    前端: dev.joyintoy.cn → API: dev-api.joyintoy.cn
-    //    前端: test.joyintoy.cn → API: test-api.joyintoy.cn
+    // 2. 兜底：按域名约定推断。
+    //    约定是「前端 <env>[-auth].joyintoy.cn -> 后端 <env>-api.joyintoy.cn」。
+    //    ⚠️ 必须先把首段末尾的 -auth 去掉：实测 mdmdev-auth.joyintoy.cn 的后端是
+    //    mdmdev-api.joyintoy.cn，而旧写法会推成 mdmdev-auth-api.joyintoy.cn（该域名不存在），
+    //    导致整个扩展在这个环境上不可用。
     var host = window.location.hostname;
-    if (host.indexOf('dev.') === 0) {
-      _apiBaseOrigin = 'https://dev-api.joyintoy.cn';
-    } else if (host.indexOf('test.') === 0) {
-      _apiBaseOrigin = 'https://test-api.joyintoy.cn';
-    } else if (host.indexOf('localhost') !== -1 || host === '127.0.0.1') {
+    if (host.indexOf('localhost') !== -1 || host === '127.0.0.1') {
       // 本地开发可能直接配了代理，用当前 origin
       _apiBaseOrigin = window.location.origin;
     } else {
-      // 从 hostname 推断: xxx.joyintoy.cn → xxx-api.joyintoy.cn
       var parts = host.split('.');
       if (parts.length >= 3) {
-        parts[0] = parts[0] + '-api';
+        parts[0] = parts[0].replace(/-auth$/, '') + '-api';
         _apiBaseOrigin = 'https://' + parts.join('.');
       } else {
         _apiBaseOrigin = window.location.origin;

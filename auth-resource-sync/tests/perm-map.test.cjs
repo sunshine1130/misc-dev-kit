@@ -217,6 +217,28 @@ test('read-modify-write：基础字段原样保留，只替换两个数组', () 
   assert.ok(!('userPublicFieldList' in p), 'userPublicFieldList 不提交');
 });
 
+test('白名单：接口多返回的字段不得被带进载荷（实测返回 syncOutsideSystemVOList）', () => {
+  // 实环境 selectUserDetail 返回的字段比页面 formState 多，多传就是偏离"镜像页面"
+  const detail = {
+    userId: 358, userName: 'testAPSAuth', nickName: 'sh测试权限账号',
+    userType: '01', partner: '1', sex: '0', deptId: 61,
+    phonenumber: '13733333333', email: 'sdfsdf@joyin.com',
+    appIdList: [39, 44], roleIdList: [108, 117],
+    userDataList: [], userPublicFieldList: [],
+    syncOutsideSystemList: [], syncOutsideSystemVOList: [],
+    createBy: 'x', createTime: '2026-01-01', updateBy: 'y', updateTime: '2026-01-02'
+  };
+  const p = M.buildEditPayload(detail, detail.appIdList, detail.roleIdList);
+  assert.ok(!('syncOutsideSystemVOList' in p), 'VO 列表不该提交');
+  assert.ok(!('createBy' in p) && !('updateTime' in p), '审计字段不该提交');
+  assert.deepStrictEqual(
+    Object.keys(p).sort(),
+    ['appIdList', 'deptId', 'email', 'nickName', 'partner', 'phonenumber',
+     'roleIdList', 'sex', 'syncOutsideSystemList', 'userId', 'userName', 'userType'].sort(),
+    '载荷字段集必须与页面 formState 完全一致'
+  );
+});
+
 test('deptId 为 null 时补 0（后端默认值约定）', () => {
   assert.strictEqual(M.buildEditPayload({ deptId: null }, [], []).deptId, 0);
   assert.strictEqual(M.buildEditPayload({}, [], []).deptId, 0);

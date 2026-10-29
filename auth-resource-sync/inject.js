@@ -12,8 +12,20 @@
 
   // 缓存最近的 API 响应
   var cachedResponses = {
-    resourceTree: null
+    resourceTree: null,
+    // 任何 /auth2 请求的真实 origin。
+    // 为什么要单独记：用户管理页不会请求资源树，只靠资源树拿不到 API 基址；
+    // 而按域名猜对 xxx-auth.joyintoy.cn 这类命名会猜错（实测 mdmdev-auth 环境）。
+    auth2Origin: null
   };
+
+  /** 记录 /auth2 请求的真实 origin（相对路径按当前页面解析） */
+  function recordAuth2Origin(url) {
+    try {
+      if (String(url || '').indexOf('/auth2/') === -1) return;
+      cachedResponses.auth2Origin = new URL(url, window.location.href).origin;
+    } catch (e) { /* ignore */ }
+  }
 
   // 当前页面检测到的 app 信息
   var detectedApp = null;
@@ -37,6 +49,8 @@
 
     self.addEventListener('load', function () {
       if (!url) return;
+
+      recordAuth2Origin(url);
 
       try {
         var responseData = JSON.parse(self.responseText);
@@ -80,6 +94,8 @@
 
       try {
         var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+
+        recordAuth2Origin(url);
 
         if (url.indexOf(RESOURCE_TREE_API) !== -1) {
           clonedResponse.json().then(function (data) {
@@ -166,7 +182,8 @@
         type: 'CACHED_DATA_RESPONSE',
         requestId: requestId,
         payload: {
-          resourceTree: cachedResponses.resourceTree
+          resourceTree: cachedResponses.resourceTree,
+          auth2Origin: cachedResponses.auth2Origin
         }
       }, '*');
     }

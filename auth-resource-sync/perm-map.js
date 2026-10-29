@@ -273,24 +273,38 @@
   }
 
   /**
+   * 页面 editUser 会提交的字段白名单 —— 严格照抄 addOrEditModal.vue 的 formState + userId。
+   *
+   * 为什么用白名单而不是"展开 detail 再删两个"：
+   *   selectUserDetail 返回的字段比页面 formState 多（实测多出 syncOutsideSystemVOList）。
+   *   多提交一个字段就意味着让后端多处理一份数据，行为可能与页面不一致 ——
+   *   而本插件的全部安全论据就是"严格镜像页面行为"。所以只允许页面会发的字段通过。
+   */
+  var PAGE_SUBMIT_FIELDS = [
+    'userId', 'userName', 'nickName', 'password', 'userType',
+    'partner', 'sex', 'phonenumber', 'email'
+  ];
+
+  /**
    * 构造 editUser 的提交载荷 —— read-modify-write，只换应用与角色。
    *
    * 为什么必须这么写（不要"优化"成只提交 userId+两个数组）：
    *   editUser 是全量表单提交（addOrEditModal.vue:533-573），只传两个数组会让
    *   后端把它们之外的字段当成空值处理，用户基础信息、同步外部系统等都可能被清掉。
-   *   本函数刻意把 currentDetail 原样展开，只覆盖 appIdList / roleIdList。
    *
-   * syncOutsideSystemList 只增不减：页面里已同步过的外部平台不允许移除
-   *   （addOrEditModal.vue:750-751,770-771），插件不能比页面权限更大。
+   * 三个刻意的取舍：
+   *   1. 白名单取字段，不展开整个 detail（见 PAGE_SUBMIT_FIELDS 的说明）。
+   *   2. 不提交 userDataList / userPublicFieldList —— 页面编辑态本就不提交
+   *      （addOrEditModal.vue:538,542 被注释），照抄即可，避免把结构猜错。
+   *   3. syncOutsideSystemList 只原样回传，绝不缩减：页面里已同步过的外部平台
+   *      不允许移除（addOrEditModal.vue:750-751,770-771），插件不能比页面权限更大。
    */
   function buildEditPayload(currentDetail, desiredAppIds, desiredRoleIds) {
     var detail = currentDetail || {};
     var payload = {};
-    Object.keys(detail).forEach(function (k) {
-      // userDataList / userPublicFieldList 是只读回显数据，页面编辑态本就不提交
-      // （addOrEditModal.vue:538,542 被注释）；照抄页面行为，避免把数据结构猜错。
-      if (k === 'userDataList' || k === 'userPublicFieldList') return;
-      payload[k] = detail[k];
+
+    PAGE_SUBMIT_FIELDS.forEach(function (k) {
+      if (detail[k] !== undefined) payload[k] = detail[k];
     });
 
     payload.appIdList = toArray(desiredAppIds).slice();
@@ -299,7 +313,6 @@
     // 后端对部门有默认值约定（addOrEditModal.vue:541）
     payload.deptId = (detail.deptId === null || detail.deptId === undefined) ? 0 : detail.deptId;
 
-    // 外部系统同步列表：取原值，不缩减（边界 7）
     payload.syncOutsideSystemList = toArray(detail.syncOutsideSystemList).slice();
 
     return payload;
