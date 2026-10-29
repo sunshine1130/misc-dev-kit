@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dict Sync 使用说明</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font: 14px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    color: #333; background: #f8f9fb;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 20px; }
+  .card {
+    background: #fff; border-radius: 10px; padding: 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 22px; color: #5b4fcf; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2 { font-size: 15px; color: #5b4fcf; margin: 16px 0 8px; }
+  p { margin-bottom: 8px; color: #555; }
+  .step { display: flex; gap: 10px; margin-bottom: 10px; }
+  .step-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #7c6ff7; color: #fff; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+  }
+  .step-text { flex: 1; }
+  .tag {
+    display: inline-block; padding: 1px 8px; border-radius: 4px;
+    font-size: 12px; font-weight: 600; margin-right: 4px;
+  }
+  .tag-purple { background: #f4f2ff; color: #7c6ff7; }
+  .tag-green { background: #ecfdf3; color: #17a34a; }
+  .tag-red { background: #fef3f2; color: #e5484d; }
+  .tag-blue { background: #f0f4ff; color: #5b6abf; }
+  ul { padding-left: 18px; margin-bottom: 8px; }
+  li { color: #666; margin-bottom: 3px; }
+  .note { font-size: 12px; color: #999; padding: 8px 12px; background: #fafafa; border-radius: 6px; margin-top: 8px; }
+  code { background: #f4f2ff; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #5b4fcf; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="card">
+  <h1>📋 Dict Sync</h1>
+  <p style="color:#888">将 dev 环境的字典配置（类型 + 值）一键同步到 test 环境</p>
+</div>
+
+<div class="card">
+  <h2>🚀 快速开始（3 步）</h2>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      <b>在 dev 环境采集数据</b>
+      <p>打开 dev 的字典管理页面 → 搜索你要同步的字典 → 点击右下角 📋 → 展开面板 → 点 <span class="tag tag-purple">📥 一键采集</span></p>
+      <p>插件会自动拉取当前搜索结果中所有字典类型及其字典值</p>
+      <p class="note">💡 可以多次搜索、多次采集，数据会自动合并去重。已有数据重新采集会更新字段（如备注变更）</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      <b>在 dev 页面勾选要同步的项</b>
+      <p>面板中会列出所有采集到的字典类型和值，以树形展示。勾选/取消勾选来控制哪些需要同步</p>
+      <ul>
+        <li>点分组 checkbox → 全选/全不选该组</li>
+        <li>点单条 checkbox → 单独控制</li>
+        <li>点 <span class="tag tag-blue">全选</span> → 一键全选/全不选</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <b>在 test 环境同步</b>
+      <p>打开 test 的字典管理页面 → <b>先搜索一次</b>（让插件检测 API 地址）→ 点 📋 打开面板 → 点 <span class="tag tag-green">📤 同步选中</span></p>
+      <p>插件会：先查 test 是否已有该字典/值 → 有则更新 → 无则新建。字典值按同一字典下的 value 精确匹配，不按 label 匹配；例如「年岁：year」会更新为「岁：year」，不会新增重复的 year。</p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🔧 面板功能说明</h2>
+  <ul>
+    <li><span class="tag tag-purple">📥 一键采集</span> 抓取当前搜索结果 + 自动拉取值</li>
+    <li><span class="tag tag-green">📤 同步选中</span> 将勾选的字典和值同步到当前环境</li>
+    <li><span class="tag tag-red">🗑 删除选中</span> 从采集数据中移除勾选的项</li>
+    <li><span class="tag tag-red">🗑 清除</span> 清空全部采集数据</li>
+    <li>日志区点击 <b>▲ / ▼</b> 可折叠展开</li>
+    <li>📋 浮动按钮可以<b>拖拽移动</b>位置</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>⚠️ 注意事项</h2>
+  <ul>
+    <li>同步前在 <b>test 页面先搜索一次</b>，确保插件检测到正确的 API 地址</li>
+    <li>切换到 test 标签页后，打开面板会自动从存储刷新数据，无需手动刷新</li>
+    <li>字典的 <code>belongingProjectList</code> 同步时设为空数组（因列表 API 只返回展示文本，无法还原为项目编码）</li>
+    <li>同步使用 <b>先查后改</b> 策略：test 已有则走编辑接口，没有则走新增接口</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

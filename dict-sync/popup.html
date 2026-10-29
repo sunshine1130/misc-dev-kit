@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dict Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📋 Dict Sync</h1>
+      <span class="subtitle">字典同步工具</span>
+    </div>
+
+    <div id="no-data" class="empty-state">
+      <div class="empty-icon">📭</div>
+      <p>暂无采集数据</p>
+      <p class="hint">在 dev 环境字典页面搜索后，点击右下角浮动按钮采集数据</p>
+    </div>
+
+    <div id="has-data" style="display:none">
+      <!-- 数据概览 -->
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">字典类型</span>
+          <span id="summary-dict-types" class="summary-value">0</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">字典值</span>
+          <span id="summary-dict-values" class="summary-value">0</span>
+        </div>
+      </div>
+
+      <!-- 数据详情 -->
+      <div id="detail-section" class="detail-section">
+        <h3>采集详情</h3>
+        <div id="detail-list"></div>
+      </div>
+
+      <!-- 操作 -->
+      <div class="actions">
+        <button id="btn-export" class="btn btn-secondary">📤 导出 JSON</button>
+        <button id="btn-clear" class="btn btn-danger">🗑 清除数据</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>当前页面: <span id="current-url">-</span></span>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

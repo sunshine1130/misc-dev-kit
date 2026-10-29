@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Auth Resource Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <span class="popup-title">🔗 Auth Resource Sync</span>
+      <span class="popup-version">v1.0</span>
+    </div>
+
+    <div id="no-data" class="popup-section">
+      <div class="popup-empty">暂无数据</div>
+      <div class="popup-hint">在权限管理页面操作</div>
+    </div>
+
+    <div id="has-data" class="popup-section" style="display:none">
+      <div class="popup-stat">
+        <div class="popup-stat-item">
+          <span class="popup-stat-label">📘 源数据</span>
+          <span class="popup-stat-value" id="popup-dev-count">0</span>
+        </div>
+        <div class="popup-stat-item">
+          <span class="popup-stat-label">📗 目标数据</span>
+          <span class="popup-stat-value" id="popup-test-count">0</span>
+        </div>
+        <div class="popup-stat-item">
+          <span class="popup-stat-label">📋 同步队列</span>
+          <span class="popup-stat-value" id="popup-queue-count">0</span>
+        </div>
+      </div>
+
+      <div class="popup-actions">
+        <button id="btn-export" class="popup-btn popup-btn-primary">📤 导出数据</button>
+        <button id="btn-clear" class="popup-btn popup-btn-danger">🗑 清除数据</button>
+      </div>
+
+      <div class="popup-current-url" id="current-url">-</div>
+    </div>
+  </div>
+</body>
+<script src="popup.js"></script>
+</html>

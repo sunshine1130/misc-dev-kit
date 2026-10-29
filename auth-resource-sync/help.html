@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Auth Resource Sync - 使用说明</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 24px;
+      line-height: 1.8;
+      color: #333;
+      font-size: 14px;
+    }
+    h1 { font-size: 22px; color: #1890ff; margin-bottom: 4px; }
+    h2 { font-size: 17px; color: #333; margin-top: 28px; border-bottom: 2px solid #1890ff; padding-bottom: 6px; }
+    h3 { font-size: 15px; color: #555; margin-top: 20px; }
+    .step {
+      background: #fafafa;
+      border-left: 4px solid #1890ff;
+      padding: 12px 16px;
+      margin: 10px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .step-num {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background: #1890ff;
+      color: #fff;
+      text-align: center;
+      border-radius: 50%;
+      font-size: 13px;
+      line-height: 24px;
+      margin-right: 8px;
+      font-weight: bold;
+    }
+    .step-title { font-weight: 600; color: #1890ff; }
+    .note {
+      background: #fffbe6;
+      border: 1px solid #ffe58f;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+    .note::before { content: '\01F4A1 '; }
+    .warn {
+      background: #fff2f0;
+      border: 1px solid #ffccc7;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 13px;
+    }
+    .warn::before { content: '\026A0\FE0F '; }
+    ul { padding-left: 20px; }
+    li { margin: 5px 0; }
+    code {
+      background: #f5f5f5;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      color: #d4380d;
+    }
+    .kbd {
+      background: #eee;
+      border: 1px solid #ccc;
+      border-bottom: 2px solid #bbb;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 11px;
+      margin: 0 2px;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    th, td { border: 1px solid #e8e8e8; padding: 7px 10px; font-size: 13px; text-align: left; }
+    th { background: #fafafa; font-weight: 600; }
+    .green { color: #52c41a; font-weight: 600; }
+    .yellow { color: #faad14; font-weight: 600; }
+    .dim { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>Auth Resource Sync</h1>
+  <p>将权限资源（路由目录/菜单/按钮/字段权限/数据权限）从一个环境同步到另一个环境。典型场景：开发环境 → 测试环境。</p>
+
+  <!-- ====== 快速开始 ====== -->
+  <h2>快速开始</h2>
+
+  <div class="step">
+    <span class="step-num">1</span>
+    <span class="step-title">打开权限管理页面</span>
+    <p>在浏览器中打开任意环境的权限管理系统（<code>域名/MF_auth/</code>），进入某个应用的「资源管理」标签页。</p>
+    <p class="dim">插件面板会自动出现在右下角（蓝色圆形按钮），点击展开。</p>
+  </div>
+
+  <div class="step">
+    <span class="step-num">2</span>
+    <span class="step-title">采集源数据</span>
+    <p>在<strong>源环境</strong>页面中，点击面板的 <code>采集源数据</code>。插件会拉取当前应用完整资源树并缓存到本地。</p>
+  </div>
+
+  <div class="step">
+    <span class="step-num">3</span>
+    <span class="step-title">采集目标数据</span>
+    <p>切换到<strong>目标环境</strong>的相同应用页面，点击 <code>采集目标数据</code>。</p>
+    <p class="dim">两个环境的 appId 可能不同，插件自动从页面请求中提取。若自动检测失败，可手动填入 appId。</p>
+  </div>
+
+  <div class="step">
+    <span class="step-num">4</span>
+    <span class="step-title">选择同步模式并操作</span>
+    <p>插件提供两种模式，通过队列区顶部的 <span class="kbd">批量</span> / <span class="kbd">单点</span> 按钮切换。</p>
+  </div>
+
+  <div class="step">
+    <span class="step-num">5</span>
+    <span class="step-title">执行同步</span>
+    <p>模式切换后，将任务加入对应队列，点击 <code>执行队列</code> 统一执行。</p>
+  </div>
+
+  <!-- ====== 两种模式 ====== -->
+  <h2>两种模式详解</h2>
+
+  <h3>🔵 批量同步模式（默认）</h3>
+  <p><strong>适用场景</strong>：把一整块功能从源环境「搬运」到目标环境。例如源环境有整套「供应商管理」模块（目录 + 菜单 + 按钮 + 字段），目标环境完全没有，需要整体迁移。</p>
+  <p><strong>操作</strong>：勾选源节点（自动连带所有子孙）→ 目标树选择目标父节点 → <code>加入批量队列</code> → <code>执行队列</code>。</p>
+  <p><strong>行为</strong>：</p>
+  <ul>
+    <li>整棵子树一起同步（父节点 + 所有勾选子孙）</li>
+    <li>按 BFS 顺序（先父后子）确保层级正确</li>
+    <li>匹配到已有节点则更新，未匹配则新增</li>
+  </ul>
+
+  <h3>🟡 单点更新模式</h3>
+  <p><strong>适用场景</strong>：源和目标都已有同名节点，只想把源环境某个节点的配置「覆盖」到目标环境的对应节点。例如源和目标的「新增」按钮都存在，但权限字符、路径等字段不同，只想更新这一个按钮，<strong>不动它的子节点</strong>。</p>
+  <p><strong>操作</strong>：</p>
+  <ul>
+    <li>在源数据树中<strong>只勾选一个</strong>要更新的节点（父节点不要连带勾选子节点）</li>
+    <li>在目标数据树中<strong>点击选中</strong>对应的目标节点（类型必须一致）</li>
+    <li>点击 <code>更新到选中节点</code> 加入队列</li>
+    <li>点击 <code>执行队列</code></li>
+  </ul>
+  <p><strong>行为</strong>：</p>
+  <ul>
+    <li>仅更新源节点自身的字段到目标节点（走 <code>edit*Node</code>）</li>
+    <li><strong>子节点不更新</strong>，如需同步子节点请手动逐个操作</li>
+    <li>源与目标节点<strong>类型必须一致</strong>（按钮→按钮，菜单→菜单）</li>
+    <li>字段/数据节点（type 4/5）的<strong>明细列表会一起覆盖</strong>，因为明细列表是字段/数据节点的核心配置</li>
+  </ul>
+
+  <div class="warn">
+    <strong>两种模式的区别</strong>：批量模式是「搬运整棵子树」，单点模式是「点对点覆盖单个节点」。单点模式不会自动更新子节点，需要更新子节点时请逐个操作。
+  </div>
+
+  <!-- ====== 同步策略 ====== -->
+  <h2>同步策略（upsert）</h2>
+  <p>插件不是盲目新增，而是先搜索目标树匹配已有节点，再决定新增还是更新：</p>
+
+  <table>
+    <tr><th>节点类型</th><th>匹配键</th><th>说明</th></tr>
+    <tr><td>目录 (type=1)</td><td><code>parentId + name</code></td><td>同一父节点下名称唯一即匹配</td></tr>
+    <tr><td>菜单 (type=2)</td><td><code>parentId + path</code></td><td>路由地址是菜单的唯一标识</td></tr>
+    <tr><td>按钮 (type=3)</td><td><code>parentId + perms</code></td><td>权限字符不应重复</td></tr>
+    <tr><td>字段 (type=4)</td><td><code>parentId + code</code></td><td>字段编码唯一</td></tr>
+    <tr><td>数据 (type=5)</td><td><code>parentId + code</code></td><td>数据编码唯一</td></tr>
+  </table>
+
+  <ul>
+    <li><strong>匹配到</strong> → 对比字段：有差异则调用 <code>edit*Node</code> 更新，一致则<strong>跳过</strong>不发送请求</li>
+    <li><strong>未匹配到</strong> → 调用 <code>add*Node</code> 新增</li>
+    <li><strong>更新时目标已删除</strong> → 自动降级为新增</li>
+    <li><strong>同步顺序</strong>：BFS（先父后子），确保子树 parentId 正确指向已创建的新节点</li>
+  </ul>
+
+  <div class="warn">
+    <strong>注意</strong>：如果源环境和目标环境的权限字符（perms）不一致（如带环境前缀差异），插件会将其判为新增而非更新。这种情况建议在目标页面上手动修改权限字符，而非通过插件同步。
+  </div>
+
+  <!-- ====== 界面详解 ====== -->
+  <h2>界面详解</h2>
+
+  <h3>面板操作</h3>
+  <ul>
+    <li><strong>拖拽移动</strong>：按住蓝色圆形按钮拖动面板位置</li>
+    <li><strong>宽度缩放</strong>：拖动面板左边缘的蓝色手柄调整面板宽度（最小 500px）</li>
+    <li><strong>面板高度</strong>：自动为窗口高度的 80%，窗口缩放时跟随</li>
+  </ul>
+
+  <h3>源数据树操作</h3>
+  <ul>
+    <li><strong>勾选节点</strong>：父节点勾选 → 自动连带所有子孙；取消父节点 → 取消所有子孙</li>
+    <li><strong>半选状态</strong>：部分子孙已勾选时，父节点显示蓝色半选框</li>
+    <li><strong>全选/取消</strong>：点击树头部 <span class="kbd">☑</span> 按钮</li>
+    <li><strong>展开/折叠</strong>：点击节点前的 ▶/▼ 箭头；点击树头部 <span class="kbd">▼</span>/<span class="kbd">▲</span> 批量操作</li>
+    <li><strong>搜索节点</strong>：输入关键字自动展开匹配路径，匹配节点高亮</li>
+    <li><strong>悬浮提示</strong>：鼠标悬停在节点上显示完整信息（perms/path/code/type/id）</li>
+    <li><strong>颜色标记</strong>：选中目标父节点后，勾选节点实时显示同步状态颜色</li>
+  </ul>
+
+  <h3>目标数据树操作</h3>
+  <ul>
+    <li><strong>选中目标父节点</strong>：点击节点高亮，底部显示选中路径</li>
+    <li><strong>只允许选中目录/菜单</strong>：按钮、字段节点不可作为父节点</li>
+    <li><strong>展开/折叠</strong>：点击 ▶/▼ 箭头（不会触发选中）</li>
+  </ul>
+
+  <h3>同步队列</h3>
+  <ul>
+    <li><strong>查看详情</strong>：点击 ▶ 展开，显示所有子节点及各自的同步状态标签</li>
+    <li><strong>移除任务</strong>：点击 ✕ 删除单条</li>
+    <li><strong>清空队列</strong>：点击「清空队列」删除全部</li>
+  </ul>
+
+  <h3>日志面板</h3>
+  <ul>
+    <li><strong>默认折叠</strong>：点击「▼ 展开」查看详细日志</li>
+    <li><strong>日志内容</strong>：每条任务的汇总结果（新增数/更新数/明细数/失败数）</li>
+    <li><strong>失败行</strong>：红色显示，包含具体错误信息</li>
+  </ul>
+
+  <!-- ====== 节点类型 ====== -->
+  <h2>节点类型说明</h2>
+  <table>
+    <tr><th>图标</th><th>类型</th><th>type</th><th>有子树</th><th>有明细</th><th>关键字段</th></tr>
+    <tr><td>📁</td><td>目录</td><td>1</td><td>✅</td><td>❌</td><td>path, component, iconCode, visible, isFrame</td></tr>
+    <tr><td>📋</td><td>菜单</td><td>2</td><td>✅</td><td>❌</td><td>path, component, perms, query, isCache, isFrame</td></tr>
+    <tr><td>🔘</td><td>按钮</td><td>3</td><td>❌</td><td>❌</td><td>perms</td></tr>
+    <tr><td>📝</td><td>字段</td><td>4</td><td>❌</td><td>✅</td><td>code, displayType, pageKey + resourceDetailList</td></tr>
+    <tr><td>💾</td><td>数据</td><td>5</td><td>❌</td><td>✅</td><td>code, pageKey + resourceDetailList</td></tr>
+  </table>
+
+  <!-- ====== 常见问题 ====== -->
+  <h2>常见问题</h2>
+
+  <div class="note">
+    <strong>Q: 点击采集后提示「获取资源树失败」？</strong><br>
+    A: 检查是否已打开应用的「资源」标签页（页面需先加载过资源树才能提取 appId 和 API 地址）。若仍失败，在工具栏手动输入 appId 后重试。
+  </div>
+
+  <div class="note">
+    <strong>Q: 子节点挂错位置了？</strong><br>
+    A: 确保在目标数据中<strong>先采集了目标环境的数据</strong>。插件需要目标树来判断已有节点的 id，否则子节点 parentId 会 fallback 到根位置。
+  </div>
+
+  <div class="note">
+    <strong>Q: 字段权限的明细没有同步过来？</strong><br>
+    A: 明细同步需要先拿到新建节点的 id（API 可能不返回）。如果节点创建成功但明细为空，展开日志确认是否有「明细同步失败」警告，然后重新采集目标数据后重试。
+  </div>
+
+  <div class="note">
+    <strong>Q: 权限码变了，想更新而非新增？</strong><br>
+    A: 插件按权限码匹配，权限码变了就会识别为新节点。这种情况建议直接在目标页面手动编辑权限码字段，或在队列中观察颜色——如果标记为绿色（新增），说明不会更新已有节点。
+  </div>
+
+  <div class="note">
+    <strong>Q: 面板消失了？</strong><br>
+    A: 插件只在 <code>/MF_auth/</code> 路径的页面激活。从非权限页面进入或刷新后需重新打开。面板位置和宽度会自动保存到浏览器 localStorage。
+  </div>
+
+  <div class="note">
+    <strong>Q: Token 需要手动填写吗？</strong><br>
+    A: 不需要。插件注入到页面上下文中，自动携带当前页面的 <code>Admin-Token</code>（从 localStorage 读取），与页面自身的请求完全一致，没有 CORS 问题。
+  </div>
+
+  <div class="note">
+    <strong>Q: 同步会生成重复数据吗？</strong><br>
+    A: 不会。插件采用 upsert 策略：先在目标树中搜索匹配节点，找到则更新，找不到才新增。字段完全一致的节点会直接跳过（不发送请求）。
+  </div>
+
+  <hr>
+  <p class="dim" style="text-align:center;font-size:12px">Auth Resource Sync v1.0 · Chrome Extension · 权限资源跨环境同步工具</p>
+</body>
+</html>

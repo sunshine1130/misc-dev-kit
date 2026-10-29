@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FBA分段匹配工具</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 头部 -->
+    <header class="header">
+      <h1 class="title">📦 FBA分段匹配工具</h1>
+      <div class="status-row">
+        <span id="configStatus" class="status-tag status-empty">未读取配置</span>
+        <span id="pageHint" class="page-hint"></span>
+      </div>
+    </header>
+
+    <!-- 配置读取区 -->
+    <section class="section">
+      <div class="section-header">
+        <h2>① 读取配置</h2>
+      </div>
+      <p class="desc">请先在 PMS 中打开 <strong>FBA参数配置</strong> 页面，然后点击下方按钮读取配置。</p>
+      <button id="btnReadConfig" class="btn btn-primary" type="button">
+        📥 读取当前页面配置
+      </button>
+      <div id="readResult" class="read-result"></div>
+    </section>
+
+    <!-- 参数输入区 -->
+    <section class="section">
+      <div class="section-header">
+        <h2>② 输入参数</h2>
+      </div>
+      <div class="input-grid">
+        <div class="input-group">
+          <label for="inputLength">长（cm）</label>
+          <input id="inputLength" type="number" step="0.01" min="0.01" placeholder="最长边" />
+        </div>
+        <div class="input-group">
+          <label for="inputWidth">宽（cm）</label>
+          <input id="inputWidth" type="number" step="0.01" min="0.01" placeholder="次长边" />
+        </div>
+        <div class="input-group">
+          <label for="inputHeight">高（cm）</label>
+          <input id="inputHeight" type="number" step="0.01" min="0.01" placeholder="最短边" />
+        </div>
+        <div class="input-group">
+          <label for="inputWeight">毛重（kg）</label>
+          <input id="inputWeight" type="number" step="0.001" min="0.001" placeholder="带包装毛重" />
+        </div>
+      </div>
+      <div class="convert-info" id="convertInfo"></div>
+      <button id="btnMatch" class="btn btn-primary" type="button">
+        🔍 匹配分段区间
+      </button>
+    </section>
+
+    <!-- 结果区 -->
+    <section class="section" id="resultSection" style="display:none;">
+      <div class="section-header">
+        <h2>③ 匹配结果</h2>
+      </div>
+      <div id="resultContent" class="result-content"></div>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

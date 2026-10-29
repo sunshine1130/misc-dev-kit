@@ -1,0 +1,21 @@
+# 打包产物与私钥（私钥绝不能入库）
+*.crx
+*.pem
+*.zip
+
+# 图标原始大图备份（压缩前的素材，不入库）
+.icon-backup/
+
+# 仅本地保留的内部文档（含内网地址/接口契约/缺陷分析，禁止入库）
+.local-docs/
+docs/
+
+# 依赖与系统文件
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器
+.vscode/
+.idea/

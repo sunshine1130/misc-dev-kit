@@ -1,0 +1,194 @@
+/* Dict Sync v4 — 精简现代风 */
+#dict-sync-panel {
+  position: fixed; z-index: 999999;
+  bottom: 20px; right: 20px;
+  font: 12px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#dict-sync-panel * { box-sizing: border-box; }
+
+/* ── 浮动按钮 ── */
+.dict-sync-btn {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(145deg, #7c6ff7 0%, #5b4fcf 100%);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  cursor: grab; user-select: none; position: relative;
+  box-shadow: 0 2px 10px rgba(91,79,207,.3), 0 0 0 0 rgba(91,79,207,0);
+  transition: transform .2s, box-shadow .2s, border-radius .2s;
+}
+.dict-sync-btn:hover {
+  transform: scale(1.06);
+  box-shadow: 0 4px 16px rgba(91,79,207,.4), 0 0 0 4px rgba(124,111,247,.12);
+}
+.dict-sync-btn:active { cursor: grabbing; transform: scale(.96); }
+.dict-sync-btn.dragging {
+  transform: scale(1.1); transition: none;
+  box-shadow: 0 6px 24px rgba(91,79,207,.45), 0 0 0 6px rgba(124,111,247,.15);
+}
+.dict-sync-btn.dict-sync-pulse { animation: dsPulse .4s ease; }
+@keyframes dsPulse {
+  0%,100%{transform:scale(1)}50%{transform:scale(1.18)}
+}
+.dict-sync-icon { font-size: 17px; line-height: 1; pointer-events: none; }
+.dict-sync-badge {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 17px; height: 17px; border-radius: 8px;
+  background: #ff4d4f; color: #fff; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 5px; line-height: 1;
+  box-shadow: 0 1px 3px rgba(255,77,79,.4);
+}
+
+/* ── 面板主体 ── */
+.dict-sync-body {
+  position: absolute; bottom: 48px; right: 0;
+  width: 384px; max-height: 540px;
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.04), 0 8px 30px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.06);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: dsSlideUp .2s ease;
+}
+@keyframes dsSlideUp {
+  from{opacity:.7;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}
+}
+.dict-sync-header {
+  background: linear-gradient(145deg, #7c6ff7 0%, #5b4fcf 100%);
+  color: #fff; padding: 8px 14px; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between;
+  user-select: none; flex-shrink: 0; letter-spacing: .3px;
+}
+.dict-sync-close {
+  cursor: pointer; opacity: .7; font-size: 14px;
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; transition: all .15s;
+}
+.dict-sync-close:hover { opacity: 1; background: rgba(255,255,255,.15); }
+
+.dict-sync-content {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden;
+}
+
+/* ── 工具栏 ── */
+.ds-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: #fafafa;
+  border-bottom: 1px solid #f0eff5; flex-shrink: 0;
+}
+.ds-check-all {
+  display: flex; align-items: center; gap: 4px; font-size: 11px;
+  cursor: pointer; user-select: none; color: #666; font-weight: 500;
+}
+.ds-summary { font-size: 11px; color: #999; }
+.ds-summary b { color: #7c6ff7; font-weight: 700; }
+.ds-toolbar input[type=checkbox] { accent-color: #7c6ff7; }
+
+/* ── 按钮 ── */
+.ds-btn {
+  padding: 4px 11px; border: 1px solid #e4e2ed; border-radius: 6px;
+  background: #fff; color: #555; font: 11px/1.4 inherit;
+  cursor: pointer; transition: all .15s; white-space: nowrap; outline: none;
+}
+.ds-btn:hover { border-color: #b8b0e8; color: #5b4fcf; background: #faf8ff; }
+.ds-btn:active { transform: scale(.97); }
+.ds-btn:disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+.ds-btn-sm { padding: 3px 8px; font-size: 10px; border-radius: 5px; }
+.ds-btn-primary {
+  background: #7c6ff7; color: #fff; border-color: transparent; font-weight: 600;
+}
+.ds-btn-primary:hover { background: #6a5de0; color: #fff; box-shadow: 0 2px 8px rgba(124,111,247,.25); }
+.ds-btn-primary:active { background: #5b4fcf; }
+.ds-btn-danger { color: #e5484d; border-color: #f5c4c7; }
+.ds-btn-danger:hover { background: #fff5f5; color: #d93030; border-color: #e5484d; }
+
+/* ── 树形列表 ── */
+.ds-list { flex: 1; overflow-y: auto; padding: 2px 0; min-height: 40px; max-height: 220px; }
+.ds-group { border-bottom: 1px solid #f4f3f8; }
+.ds-group:last-child { border: none; }
+.ds-group-hdr {
+  padding: 3px 12px; cursor: default; background: #fbfbfd;
+  display: flex; align-items: center; gap: 5px; transition: background .1s;
+}
+.ds-group-hdr:hover { background: #f5f2fc; }
+.ds-group-expand {
+  font-size: 9px; color: #c5c0d8; user-select: none;
+  width: 14px; text-align: center; cursor: pointer; transition: color .15s;
+  flex-shrink: 0;
+}
+.ds-group-expand:hover { color: #7c6ff7; }
+.ds-item {
+  display: flex; align-items: center; padding: 2px 12px; font-size: 11px;
+  transition: background .08s;
+}
+.ds-item:hover { background: #faf8fe; }
+.ds-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-item-cb { cursor: pointer; accent-color: #7c6ff7; flex-shrink: 0; }
+
+.ds-tree-parent { background: #f6f3fd !important; }
+.ds-tree-child { border-left: 2px solid #e8e2f5; margin-left: 10px; }
+.ds-tree-child:hover { background: #fbf9ff; }
+
+/* ── 操作区 ── */
+.ds-actions {
+  display: flex; gap: 8px; padding: 7px 12px;
+  border-top: 1px solid #f0eff5; flex-shrink: 0;
+}
+
+/* ── 同步结果条 ── */
+.ds-result-bar {
+  padding: 7px 14px; font-size: 12px; font-weight: 600;
+  text-align: center; flex-shrink: 0;
+  animation: dsSlideUp .2s ease;
+}
+.ds-result-ok { background: #ecfdf3; color: #17a34a; border-top: 1px solid #b7ebc5; }
+.ds-result-err { background: #fef3f2; color: #e5484d; border-top: 1px solid #f5c4c7; }
+.ds-result-syncing { background: #f4f2ff; color: #7c6ff7; border-top: 1px solid #ddd8f5; }
+
+/* ── 加载动画 ── */
+.dict-sync-spinner {
+  display: inline-block; width: 11px; height: 11px;
+  border: 2px solid #7c6ff7; border-top-color: transparent; border-radius: 50%;
+  animation: dsSpin .6s linear infinite; vertical-align: middle; margin-right: 5px;
+}
+@keyframes dsSpin { to{transform:rotate(360deg)} }
+
+/* ── 日志区 ── */
+.ds-log-wrap {
+  flex-shrink: 0; border-top: 1px solid #f0eff5;
+  max-height: 180px; display: flex; flex-direction: column;
+}
+.ds-log-title {
+  font-size: 10px; color: #aaa; padding: 4px 12px;
+  background: #fafafa; flex-shrink: 0; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid #f4f3f8;
+}
+.ds-log-title span:last-child { color: #7c6ff7; font-weight: 500; }
+.dict-sync-log {
+  flex: 1; overflow-y: auto; padding: 5px 12px; min-height: 0;
+  background: #fcfcfd;
+}
+.ds-log-item {
+  font-size: 10px; line-height: 1.55; padding: 2px 6px; border-radius: 3px;
+  margin-bottom: 1px; word-break: break-all;
+  border-left: 2px solid transparent;
+}
+.ds-log-success { color: #17a34a; background: #f6fef7; border-left-color: #86e0a5; }
+.ds-log-warn    { color: #d4a017; background: #fffdf5; border-left-color: #f5d76e; }
+.ds-log-error   { color: #e5484d; background: #fff8f8; border-left-color: #f5a0a3; }
+.ds-log-info    { color: #5b6abf; background: #f5f6ff; border-left-color: #b0bce8; }
+
+/* ── 滚动条 ── */
+.ds-list::-webkit-scrollbar,
+.dict-sync-log::-webkit-scrollbar { width: 4px; }
+.ds-list::-webkit-scrollbar-track,
+.dict-sync-log::-webkit-scrollbar-track { background: transparent; }
+.ds-list::-webkit-scrollbar-thumb,
+.dict-sync-log::-webkit-scrollbar-thumb { background: #dedae8; border-radius: 3px; }
+.ds-list::-webkit-scrollbar-thumb:hover,
+.dict-sync-log::-webkit-scrollbar-thumb:hover { background: #c5bfd8; }
+
+/* ── checkbox 半选 ── */
+.ds-partial { opacity: .45; }
+
+/* ── 通用 ── */
+.ds-divider { height: 1px; background: #f0eff5; flex-shrink: 0; }

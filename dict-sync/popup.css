@@ -1,0 +1,51 @@
+/* Dict Sync - Popup v4 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 340px; min-height: 260px;
+  font: 12px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  color: #444; background: #fafafa; -webkit-font-smoothing: antialiased;
+}
+.container { display: flex; flex-direction: column; min-height: 260px; }
+
+/* header */
+.header {
+  background: linear-gradient(145deg, #7c6ff7, #5b4fcf);
+  color: #fff; padding: 14px 16px; text-align: center;
+}
+.header h1 { font-size: 16px; font-weight: 700; letter-spacing: .3px; }
+.subtitle { font-size: 10px; opacity: .75; }
+
+/* empty */
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #bbb; }
+.empty-icon { font-size: 36px; margin-bottom: 8px; }
+.empty-state p { font-size: 12px; }
+.hint { font-size: 10px; color: #ccc; margin-top: 6px; }
+
+/* summary */
+.summary { display: flex; padding: 10px 12px; gap: 8px; }
+.summary-item { flex: 1; background: #fff; border-radius: 8px; padding: 10px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.summary-label { display: block; font-size: 10px; color: #aaa; margin-bottom: 2px; }
+.summary-value { font-size: 20px; font-weight: 700; color: #7c6ff7; }
+
+/* detail */
+.detail-section { padding: 0 12px 12px; flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.detail-section h3 { font-size: 11px; color: #888; margin-bottom: 4px; font-weight: 600; }
+#detail-list { flex: 1; overflow-y: auto; max-height: 160px; }
+.detail-item { background: #fff; border-radius: 6px; padding: 7px 10px; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 1px rgba(0,0,0,.03); font-size: 11px; }
+.detail-item-name { font-weight: 500; color: #444; word-break: break-all; flex: 1; margin-right: 6px; }
+.detail-item-count { color: #7c6ff7; font-weight: 600; white-space: nowrap; font-size: 10px; }
+
+/* buttons */
+.actions { padding: 6px 12px 10px; display: flex; gap: 6px; }
+.btn { flex: 1; padding: 7px 10px; border: 1px solid #e4e2ed; border-radius: 6px; font: 11px inherit; cursor: pointer; background: #fff; transition: all .12s; }
+.btn:hover { border-color: #b8b0e8; background: #faf8ff; }
+.btn-secondary { background: #7c6ff7; color: #fff; border: none; }
+.btn-secondary:hover { background: #6a5de0; color: #fff; }
+.btn-danger { color: #e5484d; border-color: #f5c4c7; }
+.btn-danger:hover { background: #fff5f5; border-color: #e5484d; }
+
+/* footer */
+.footer { padding: 6px 12px; border-top: 1px solid #f0eff5; font-size: 9px; color: #ccc; text-align: center; word-break: break-all; }
+
+#detail-list::-webkit-scrollbar { width: 4px; }
+#detail-list::-webkit-scrollbar-thumb { background: #dedae8; border-radius: 3px; }
