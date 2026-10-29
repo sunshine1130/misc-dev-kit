@@ -99,8 +99,23 @@ git config --global http.proxy http://127.0.0.1:7890   # 用完记得 unset
 
 ---
 
-## 五、待优化项（维护者）
+## 五、安全边界（重要）
 
-- [ ] **收窄权限**：`auth-resource-sync/manifest.json` 目前是 `"matches": ["<all_urls>"]` 加 `http://*/*`、`https://*/*`，会在**所有网站**注入脚本。建议收窄为内网域名（若还需在 IP 直连 / localhost 使用，一并加进白名单）。
+- **扩展只在公司域名生效**：`content_scripts.matches`、`host_permissions`、`web_accessible_resources`
+  都已收窄为 `*.joyintoy.cn` 加 `localhost` / `127.0.0.1`，不再向任意网站注入脚本。
+- **生产环境默认只读**：只认宿主首段含 `dev` / `test` / `uat` / `stg` / `sit` 的环境为可写，
+  其余（含所有生产域名）一律**禁止写入**，采集与差异预览不受影响。
+  确有生产同步需求时可在面板头部点「开启写入」，需**两步确认**（确认后果 + 手动输入完整域名），
+  且**只对当前环境、当前页面会话有效，刷新即恢复只读**。
+- **大批量移除二次确认**：单次移除超过 20 项权限时，除常规确认外还需**手动输入目标账号名**。
+
+> 可写环境白名单在 `auth-resource-sync/perm-map.js` 的 `WRITABLE_LABEL_RE`，
+> 阈值在 `content.js` 的 `REMOVAL_CONFIRM_THRESHOLD`。改动前请先看清两处的注释。
+
+---
+
+## 六、待优化项（维护者）
+
+- [x] ~~收窄权限~~ —— 已完成，见第五节。
 - [ ] `auth-resource-sync/icons/icon128-new.png` 未被任何文件引用，可删。
 - [ ] 扩展面板显示自身版本号，方便同事自查。

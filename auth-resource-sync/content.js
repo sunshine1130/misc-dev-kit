@@ -759,6 +759,9 @@
   async function executeSingleUpdates() {
     if (syncStatus === 'syncing') { addLog('\u26A0 \u540C\u6B65\u4E2D...', 'warn'); return; }
     if (singleTasks.length === 0) { addLog('\u26A0 \u5355\u70B9\u961F\u5217\u4E3A\u7A7A', 'warn'); return; }
+    // 资源同步同样是写操作，必须受同一条只读约束
+    var blockedWrite = writeBlockedReason();
+    if (blockedWrite) { addLog('\u26A0 已阻止写入：' + blockedWrite, 'error'); refreshPanel(); return; }
 
     syncStatus = 'syncing';
     syncLog = [];
@@ -888,6 +891,9 @@
   async function executeSync() {
     if (syncStatus === 'syncing') { addLog('\u26A0 同步中...', 'warn'); return; }
     if (syncTasks.length === 0) { addLog('\u26A0 同步队列为空', 'warn'); return; }
+    // 资源同步同样是写操作，必须受同一条只读约束
+    var blockedWrite = writeBlockedReason();
+    if (blockedWrite) { addLog('\u26A0 已阻止写入：' + blockedWrite, 'error'); refreshPanel(); return; }
 
     syncStatus = 'syncing';
     syncLog = [];
@@ -1123,6 +1129,99 @@
 
   var USER_LIST_PAGE_SIZE = 100;
 
+  // 移除规模超过这个数，就要求"手动输入目标账号名"再加一道确认。
+  // 为什么取 20：实测跨环境同步存在一次移除 100+ 项的真实场景（test 环境的账号
+  // 权限普遍比 dev 丰富，lishuai 实测会移除 121 项），一个误点就是大批量撤权；
+  // 而正常的模板复制通常只有个位数变动，不会天天触发。
+  var REMOVAL_CONFIRM_THRESHOLD = 20;
+
+  /**
+   * 生产只读的临时豁免：**只记在内存里，只对当前宿主生效**。
+   *
+   * 为什么不落 chrome.storage：刷新页面即恢复只读，避免"开过一次以后就永远是开的"。
+   * 为什么不按全局记：在 A 环境开的豁免不应该顺带把 B 环境也放开。
+   */
+  var _writeOverrideHost = '';
+
+  /** 当前环境是否被判定为"受保护环境"（与是否已豁免无关） */
+  function isProtectedEnv() {
+    return !!AuthPermMap.writeBlockReason(window.location.hostname);
+  }
+
+  /** 是否已对本环境开启写入豁免 */
+  function writeOverrideActive() {
+    return !!_writeOverrideHost && _writeOverrideHost === window.location.hostname;
+  }
+
+  /**
+   * 当前环境是否禁止写入。返回空串表示可写，否则返回不可写的原因。
+   */
+  function writeBlockedReason() {
+    if (writeOverrideActive()) return '';
+    return AuthPermMap.writeBlockReason(window.location.hostname);
+  }
+
+  /**
+   * 解除本环境的只读限制 —— 两步确认。
+   * 这一步等于把"生产只读"这道兜底暂时拆掉，必须让人明确知道自己在做什么：
+   * 第一步 confirm 讲清后果，第二步要求手动敲完整域名（防手滑、也防别人代点）。
+   */
+  function enableWriteOverride() {
+    var host = window.location.hostname;
+    if (!window.confirm(
+      '\u26A0 当前环境被视为受保护环境（生产），默认禁止写入。\n\n' +
+      '开启后将允许本扩展修改「' + host + '」上的账号权限 ——\n' +
+      '这是真实数据，改错无法自动回滚。\n\n' +
+      '确定要开启吗？'
+    )) return;
+
+    var typed = window.prompt(
+      '为避免误操作，请输入当前环境的完整域名以确认：\n' + host,
+      ''
+    );
+    if (typed === null) { addLog('[写入开关] 已取消', 'warn'); return; }
+    if (String(typed).trim().toLowerCase() !== host.toLowerCase()) {
+      addLog('[写入开关] 域名输入不一致，未开启写入', 'error');
+      refreshPanel();
+      return;
+    }
+
+    _writeOverrideHost = host;
+    addLog('[写入开关] \u26A0 已对 ' + host + ' 开启写入。' +
+           '仅本次页面会话有效，刷新页面即恢复只读。', 'warn');
+    refreshPanel();
+  }
+
+  function disableWriteOverride() {
+    _writeOverrideHost = '';
+    addLog('[写入开关] 已恢复只读', 'success');
+    refreshPanel();
+  }
+
+  /** 头部只读徽标与开关按钮的状态（两个面板共用，所以放在 refreshPanel 里刷新） */
+  function renderWriteLock() {
+    var lockEl = document.getElementById('as-write-lock');
+    var toggleEl = document.getElementById('as-write-toggle');
+    if (!isProtectedEnv()) {
+      if (lockEl) lockEl.style.display = 'none';
+      if (toggleEl) toggleEl.style.display = 'none';
+      return;
+    }
+    var blocked = writeBlockedReason();
+    if (lockEl) {
+      lockEl.style.display = '';
+      lockEl.textContent = blocked ? '\uD83D\uDD12 只读' : '\uD83D\uDD13 已开启写入';
+      lockEl.className = blocked ? 'as-lock-badge' : 'as-lock-badge as-lock-badge-open';
+      lockEl.title = blocked
+        ? AuthPermMap.writeBlockReason(window.location.hostname)
+        : '本次页面会话内允许写入，刷新页面即恢复只读';
+    }
+    if (toggleEl) {
+      toggleEl.style.display = '';
+      toggleEl.textContent = blocked ? '开启写入' : '恢复只读';
+    }
+  }
+
   /**
    * 调一个 /auth2 接口并返回其 data；失败抛出带后端 msg 的错误。
    * headers 用于透传页面自己会带的自定义头 —— 必须与页面一致，
@@ -1285,6 +1384,15 @@
     _userPlan = plan;
 
     var html = '';
+    // 移除规模超阈值时在预览顶部就给强提示 —— 不要等到确认框才让人发现
+    if (!plan.noop) {
+      var removedTotal = plan.appDiff.removed.length + plan.roleDiff.removed.length;
+      if (removedTotal > REMOVAL_CONFIRM_THRESHOLD) {
+        html += '<div class="as-pv-danger">\u26A0 本次将移除 ' + removedTotal +
+                ' 项权限，超过安全阈值 ' + REMOVAL_CONFIRM_THRESHOLD +
+                ' 项。执行时还需要再输入一次目标账号名确认。</div>';
+      }
+    }
     if (plan.noop) {
       // 幂等：完全一致时明确告知不会发任何写请求
       html += '<div class="as-pv-noop">\u2714 权限已完全一致，无需写入</div>';
@@ -1371,6 +1479,10 @@
     if (!tgtSnapshot) return;
     if (_userPlan.noop) { addLog('[用户同步] 权限已一致，未发送任何写请求', 'success'); refreshPanel(); return; }
 
+    // 生产/受保护环境默认只读；确需写入要在头部手动开启豁免
+    var blocked = writeBlockedReason();
+    if (blocked) { addLog('[用户同步] 已阻止写入：' + blocked, 'error'); refreshPanel(); return; }
+
     var removedApps = _userPlan.appDiff.removed.length;
     var removedRoles = _userPlan.roleDiff.removed.length;
     var msg = '确认把账号「' + tgtSnapshot.account + '」的应用与角色同步为源账号的配置？\n\n' +
@@ -1394,6 +1506,23 @@
     if (adminWhy) msg += '\n\n⚠ 目标账号疑似超级管理员（' + adminWhy + '），请确认这是你要改的账号。';
 
     if (!window.confirm(msg)) { addLog('[用户同步] 已取消执行', 'warn'); return; }
+
+    // 移除规模超阈值时再加一道"手动输入目标账号名"的强确认。
+    // 这一步挡的是"没看清就点确定"，而不是"想改但改错了" —— 前者才是一次撤权上百项的主因。
+    var totalRemoved = removedApps + removedRoles;
+    if (totalRemoved > REMOVAL_CONFIRM_THRESHOLD) {
+      var typed = window.prompt(
+        '\u26A0 本次将移除 ' + totalRemoved + ' 项权限（应用 ' + removedApps +
+        ' / 角色 ' + removedRoles + '），已超过安全阈值 ' + REMOVAL_CONFIRM_THRESHOLD + ' 项。\n\n' +
+        '确认要继续，请输入目标账号名：' + tgtSnapshot.account,
+        ''
+      );
+      if (typed === null) { addLog('[用户同步] 已取消执行（未做阈值确认）', 'warn'); return; }
+      if (String(typed).trim() !== String(tgtSnapshot.account)) {
+        addLog('[用户同步] 输入的账号名与目标不一致，已取消执行', 'error');
+        return;
+      }
+    }
 
     _userBusy = true; refreshPanel();
     try {
@@ -1544,10 +1673,15 @@
 
     var execBtn = document.getElementById('as-user-exec');
     if (execBtn) {
-      // 只有"算出了差异且确实需要写"时才允许执行；处理中一律禁用
-      execBtn.disabled = _userBusy || !_userPlan || _userPlan.noop;
+      // 只读环境必须让按钮直接呈现不可用 —— 若只靠点击时的守卫拦下来，
+      // 用户会以为功能坏了，也看不出"需要先在头部开启写入"。
+      var blockedNow = writeBlockedReason();
+      execBtn.disabled = _userBusy || !_userPlan || _userPlan.noop || !!blockedNow;
+      execBtn.title = blockedNow || '';
       if (_userBusy) {
         execBtn.textContent = '\u23F3 处理中...';
+      } else if (blockedNow && _userPlan && !_userPlan.noop) {
+        execBtn.textContent = '\uD83D\uDD12 只读环境，禁止写入';
       } else if (_userPlan && !_userPlan.noop) {
         var add = _userPlan.appDiff.added.length + _userPlan.roleDiff.added.length;
         var del = _userPlan.appDiff.removed.length + _userPlan.roleDiff.removed.length;
@@ -1660,7 +1794,11 @@
           // header
           '<div class="as-header">' +
             '<span>\uD83D\uDD17 Auth Resource Sync</span>' +
-            '<div style="display:flex;gap:4px">' +
+            '<div style="display:flex;gap:4px;align-items:center">' +
+              // 只读徽标与豁免开关放在头部：资源同步与用户同步两个面板都要受这条约束
+              '<span id="as-write-lock" class="as-lock-badge" style="display:none">\uD83D\uDD12 只读</span>' +
+              '<button id="as-write-toggle" class="as-btn as-btn-xs" style="display:none" ' +
+                'title="临时允许在本环境写入（仅本次页面会话，刷新即恢复只读）">开启写入</button>' +
               '<button id="as-help-btn" class="as-btn as-btn-xs" title="帮助">\u2753</button>' +
               '<span id="as-close" class="as-close">\u2715</span>' +
             '</div>' +
@@ -1814,6 +1952,10 @@
       // ── 顶层能力切换 ──
       bindClick('as-tab-res', function () { switchTopTab('res'); });
       bindClick('as-tab-user', function () { switchTopTab('user'); });
+      // ── 生产只读豁免开关 ──
+      bindClick('as-write-toggle', function () {
+        if (writeOverrideActive()) disableWriteOverride(); else enableWriteOverride();
+      });
       // ── 用户权限同步 ──
       bindClick('as-capture-src', function () { captureUserSnapshot('src'); });
       bindClick('as-capture-tgt', function () { captureUserSnapshot('tgt'); });
@@ -2349,6 +2491,7 @@
     updateTargetInfo();
     renderLog();
     renderUserPane();
+    renderWriteLock();
 
     // 模式按钮高亮
     var mode0 = document.getElementById('as-mode-batch');
@@ -2360,8 +2503,12 @@
     var execBtn = document.getElementById('as-exec-sync');
     var total = syncMode === 'single' ? singleTasks.length : syncTasks.length;
     if (execBtn) {
-      execBtn.disabled = syncStatus === 'syncing';
-      execBtn.textContent = syncStatus === 'syncing' ? '\u23F3 \u540C\u6B65\u4E2D...' : ('\uD83D\uDCE4 \u6267\u884C\u961F\u5217 (' + total + ')');
+      // 资源同步同样受"生产只读"约束，按钮也要如实呈现
+      var resBlocked = writeBlockedReason();
+      execBtn.disabled = syncStatus === 'syncing' || !!resBlocked;
+      execBtn.title = resBlocked || '';
+      execBtn.textContent = syncStatus === 'syncing' ? '\u23F3 \u540C\u6B65\u4E2D...'
+        : (resBlocked ? '\uD83D\uDD12 \u53EA\u8BFB\u73AF\u5883' : ('\uD83D\uDCE4 \u6267\u884C\u961F\u5217 (' + total + ')'));
     }
 
     // 单点/批量按钮显示切换

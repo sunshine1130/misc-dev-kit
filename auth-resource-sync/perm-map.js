@@ -393,6 +393,28 @@
     return s ? s.split('.')[0] : '';
   }
 
+  // 允许「写入」的环境：只认开发/测试类宿主，其余一律只读。
+  // 为什么是"白名单 + 默认拒绝"而不是"排除 prod"：
+  //   漏判一个生产域名 = 可能真的改掉线上权限；误判一个测试域名 = 多点一次的事。
+  //   两者代价完全不对等，所以默认取安全的那一侧。
+  // 只看宿主首段：避免把 ".com"、"--" 之类误当关键字命中。
+  var WRITABLE_LABEL_RE = /(dev|test|uat|stg|staging|sit|sandbox)/i;
+
+  function isWriteAllowed(host) {
+    host = String(host || '').toLowerCase();
+    if (!host) return false;
+    if (host === 'localhost' || host.indexOf('localhost') === 0) return true;
+    if (host === '127.0.0.1' || host.indexOf('127.0.0.1') === 0) return true;
+    return WRITABLE_LABEL_RE.test(host.split('.')[0]);
+  }
+
+  /** 供界面展示：为什么这个环境不允许写 */
+  function writeBlockReason(host) {
+    if (isWriteAllowed(host)) return '';
+    return '「' + String(host || '未知环境') + '」不在可写环境白名单内（只认首段含 dev/test/uat/stg/sit 的宿主）。' +
+           '生产环境默认只读，避免误改线上权限。';
+  }
+
   return {
     mapCrossEnv: mapCrossEnv,
     mapSameEnv: mapSameEnv,
@@ -403,6 +425,8 @@
     superAdminReason: superAdminReason,
     inferMode: inferMode,
     envColor: envColor,
-    shortEnv: shortEnv
+    shortEnv: shortEnv,
+    isWriteAllowed: isWriteAllowed,
+    writeBlockReason: writeBlockReason
   };
 });

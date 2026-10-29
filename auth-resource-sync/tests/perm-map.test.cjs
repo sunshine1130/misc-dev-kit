@@ -358,5 +358,44 @@ test('环境简称取宿主首段', () => {
   assert.strictEqual(M.shortEnv(''), '');
 });
 
+console.log('\n[isWriteAllowed] 环境只读白名单（生产默认只读）');
+
+test('开发/测试类环境允许写入', () => {
+  for (const h of ['mdmdev-auth.joyintoy.cn', 'mdmtest-auth.joyintoy.cn', 'dev.joyintoy.cn',
+                   'test.joyintoy.cn', 'uat.joyintoy.cn', 'sit.joyintoy.cn',
+                   'localhost', 'localhost:8080', '127.0.0.1']) {
+    assert.strictEqual(M.isWriteAllowed(h), true, h + ' 应允许写入');
+  }
+});
+
+test('生产与其他不认识的宿主一律只读（默认拒绝）', () => {
+  for (const h of ['auth.joyintoy.cn', 'api.joyintoy.cn', 'joyintoy.cn',
+                   'prod-auth.joyintoy.cn', 'mdmprod-auth.joyintoy.cn', 'prd.joyintoy.cn',
+                   'something.example.com', '']) {
+    assert.strictEqual(M.isWriteAllowed(h), false, h + ' 应被判定为只读');
+  }
+});
+
+test('关键词按首段做子串匹配（为了兼容 mdmdev/mdmtest 这类命名）', () => {
+  // 公司的前端宿主形如 mdm<env>-auth.joyintoy.cn —— 环境关键词嵌在首段内部、没有分隔符，
+  // 所以不能用词边界，只能子串匹配。代价见下条断言，方向是"误放行"而非"误拦截"。
+  assert.strictEqual(M.isWriteAllowed('mdmdev-auth.joyintoy.cn'), true);
+  assert.strictEqual(M.isWriteAllowed('mdmtest-auth.joyintoy.cn'), true);
+  assert.strictEqual(M.isWriteAllowed('dev.example.com'), true);
+  // 已知取舍：首段里只要出现关键词就放行（如 contest）
+  assert.strictEqual(M.isWriteAllowed('contest.example.com'), true);
+  // 但关键词出现在非首段则完全不影响判断
+  assert.strictEqual(M.isWriteAllowed('shop.contest.com'), false);
+  assert.strictEqual(M.isWriteAllowed('auth.dev-cdn.com'), false, '只看首段');
+});
+
+test('writeBlockReason：允许时为空串，禁止时给出可操作的原因', () => {
+  assert.strictEqual(M.writeBlockReason('mdmtest-auth.joyintoy.cn'), '');
+  const r = M.writeBlockReason('auth.joyintoy.cn');
+  assert.ok(r.length > 0);
+  assert.match(r, /只读/);
+  assert.match(r, /auth\.joyintoy\.cn/);
+});
+
 console.log('\n结果: ' + passed + ' 通过, ' + failed + ' 失败');
 process.exit(failed === 0 ? 0 : 1);

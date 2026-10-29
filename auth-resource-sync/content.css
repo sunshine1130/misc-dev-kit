@@ -566,8 +566,7 @@
   border-color: #d3adf7;
 }
 
-/* 环境徽标：显示该快照采集自哪个环境，颜色与对应输入框保持一致 */
-.as-env-badge {
+/* 环境徽标：显示该快照采集自哪个环境，颜色与对应输入框保持一致 */.as-env-badge {
   flex: 0 0 auto;
   font-size: 10px;
   line-height: 1.7;
@@ -580,6 +579,35 @@
   max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 只读徽标与豁免开关（放在头部，资源同步与用户同步共用同一条约束） */
+.as-lock-badge {
+  font-size: 11px;
+  line-height: 1.7;
+  padding: 1px 8px;
+  border-radius: 9px;
+  border: 1px solid #ffccc7;
+  background: #fff2f0;
+  color: #cf1322;
+  white-space: nowrap;
+}
+.as-lock-badge-open {
+  border-color: #ffe58f;
+  background: #fffbe6;
+  color: #d48806;
+}
+
+/* 移除规模超过安全阈值时的强提示 */
+.as-pv-danger {
+  color: #cf1322;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-weight: 600;
+  line-height: 1.7;
 }
 
 /* ========== 用户权限同步面板 ========== */
