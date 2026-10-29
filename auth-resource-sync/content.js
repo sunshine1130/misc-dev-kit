@@ -71,6 +71,14 @@
   var isAuthPage = false;
   var _lastUrl = '';
 
+  /**
+   * 扩展自身版本号，用于面板与帮助页显示 —— 同事重载后能自查是不是最新版。
+   * 失败时返回空串：在非扩展环境（例如把 help.html 用文件方式打开）不该报错。
+   */
+  function extVersion() {
+    try { return 'v' + chrome.runtime.getManifest().version; } catch (e) { return ''; }
+  }
+
   function checkAuthPage() {
     var url = window.location.href;
     if (url === _lastUrl) return isAuthPage;
@@ -1917,7 +1925,10 @@
           '<div id="as-resize-handle" class="as-resize-handle"></div>' +
           // header
           '<div class="as-header">' +
-            '<span>\uD83D\uDD17 Auth Resource Sync</span>' +
+            // 带上版本号：同事重载后能一眼确认自己是不是最新版，不用去 chrome://extensions 看
+            '<span>\uD83D\uDD17 Auth Resource Sync' +
+              '<span id="as-version" class="as-version" title="扩展版本（取自 manifest.json）">' +
+                extVersion() + '</span></span>' +
             '<div style="display:flex;gap:4px;align-items:center">' +
               // 只读徽标与豁免开关放在头部：资源同步与用户同步两个面板都要受这条约束
               '<span id="as-write-lock" class="as-lock-badge" style="display:none">\uD83D\uDD12 只读</span>' +

@@ -124,4 +124,6 @@ git config --global http.proxy http://127.0.0.1:7890   # 用完记得 unset
 - [x] ~~`icons/icon128-new.png` 未被任何文件引用~~ —— 已删除（git 历史里可恢复）。
 - [x] ~~清理运行时消息里的死代码~~ —— 三个无人调用的处理器已删除，
       只保留 `popup → background` 的 `CLEAR_DATA` 一条清除路径。
-- [ ] 扩展面板显示自身版本号，方便同事自查。
+- [x] ~~扩展面板显示自身版本号~~ —— 已完成：面板头部、popup、帮助页三处都从
+      `chrome.runtime.getManifest()` 读，不再手抄（原先 popup 写死 `v1.0`、帮助页写死 `v1.1`，
+      早已和 manifest 对不上）。

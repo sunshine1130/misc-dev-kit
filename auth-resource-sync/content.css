@@ -119,6 +119,14 @@
   background: #fff2f0;
 }
 
+/* 面板头部的扩展版本号：让同事一眼确认自己加载的是不是最新版 */
+.as-version {
+  font-size: 10px;
+  font-weight: 400;
+  color: #999;
+  margin-left: 5px;
+}
+
 /* ========== Content Area ========== */
 .as-content {
   flex: 1;

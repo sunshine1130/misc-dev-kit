@@ -16,6 +16,12 @@
   var btnClear = document.getElementById('btn-clear');
 
   async function init() {
+    // 版本号从 manifest 读，不要写死 —— 之前这里写死 v1.0，很快就过期了
+    try {
+      var verEl = document.getElementById('popup-version');
+      if (verEl) verEl.textContent = 'v' + chrome.runtime.getManifest().version;
+    } catch (e) { /* 非扩展环境忽略 */ }
+
     try {
       var tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tabs[0] && tabs[0].url) currentUrlEl.textContent = tabs[0].url;
