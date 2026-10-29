@@ -10,6 +10,7 @@
   var srcCountEl = document.getElementById('popup-dev-count');
   var tgtCountEl = document.getElementById('popup-test-count');
   var queueCountEl = document.getElementById('popup-queue-count');
+  var snapCountEl = document.getElementById('popup-snap-count');
   var currentUrlEl = document.getElementById('current-url');
   var btnExport = document.getElementById('btn-export');
   var btnClear = document.getElementById('btn-clear');
@@ -49,8 +50,11 @@
     var srcCount = countNodes(data.devTree || data.sourceTree || []);
     var tgtCount = countNodes(data.testTree || data.targetTree || []);
     var queueCount = (data.syncTasks || []).length + (data.singleTasks || []).length;
+    // 用户权限同步的快照也要计数：只采集了账号快照时，
+    // 若不计入，popup 会显示"暂无数据"并把「清除数据」按钮藏起来。
+    var snapCount = (data.srcSnapshot ? 1 : 0) + (data.tgtSnapshot ? 1 : 0);
 
-    if (srcCount === 0 && tgtCount === 0 && queueCount === 0) {
+    if (srcCount === 0 && tgtCount === 0 && queueCount === 0 && snapCount === 0) {
       noDataEl.style.display = '';
       hasDataEl.style.display = 'none';
       return;
@@ -61,6 +65,20 @@
     if (srcCountEl) srcCountEl.textContent = srcCount + ' \u8282\u70B9';
     if (tgtCountEl) tgtCountEl.textContent = tgtCount + ' \u8282\u70B9';
     if (queueCountEl) queueCountEl.textContent = queueCount + ' \u6761';
+    if (snapCountEl) snapCountEl.textContent = snapCount + ' \u4E2A';
+  }
+
+  /** 导出时只保留快照的关键字段，不带 detail（里面有手机号/邮箱等个人信息） */
+  function trimSnapshot(s) {
+    if (!s) return null;
+    return {
+      account: s.account,
+      userId: s.userId,
+      env: s.env,
+      appIdList: s.appIdList,
+      roleIdList: s.roleIdList,
+      capturedAt: s.capturedAt
+    };
   }
 
   function exportData(data) {
@@ -81,6 +99,11 @@
       singleTasks: (data.singleTasks || []).map(function (t) {
         return { sourceName: t.sourceNode ? t.sourceNode.name : '', targetNodeName: t.targetNodeName, targetNodeId: t.targetNodeId };
       }),
+      // 用户权限同步的两个快照（只保留关键字段，不含 detail 里的手机号/邮箱）
+      userSnapshots: {
+        source: trimSnapshot(data.srcSnapshot || data.sourceSnapshot),
+        target: trimSnapshot(data.tgtSnapshot || data.targetSnapshot)
+      },
       exportedAt: new Date().toISOString()
     };
 

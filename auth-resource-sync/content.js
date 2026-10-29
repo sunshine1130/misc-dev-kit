@@ -187,7 +187,13 @@
     }
   }
 
-  async function clearAllData() {
+  /**
+   * 清空全部状态。
+   * @param {boolean} removeStorage 是否同时删掉存储。
+   *   popup 的「清除数据」已经删过存储了，那种场景只需重置内存（传 false）；
+   *   否则会把刚被删掉的键又写回一个空对象。
+   */
+  async function clearAllData(removeStorage) {
     devTree = [];
     testTree = [];
     devAppId = null;
@@ -200,17 +206,27 @@
     srcSnapshot = null;
     tgtSnapshot = null;
     _userPlan = null;
+    _restoredAt = { src: 0, tgt: 0 };
     syncLog = [];
     selectedTestNodeId = null;
     syncStatus = 'idle';
-    try { await chrome.storage.local.remove(STORAGE_KEY); } catch (e) {}
+    if (removeStorage) {
+      try { await chrome.storage.local.remove(STORAGE_KEY); } catch (e) {}
+    }
   }
 
   chrome.storage.onChanged.addListener(function (changes, namespace) {
     if (namespace !== 'local') return;
     if (!changes[STORAGE_KEY]) return;
     var newVal = changes[STORAGE_KEY].newValue;
-    if (!newVal) return;
+    if (!newVal) {
+      // 存储被清空（例如 popup 的「清除数据」）：内存状态必须一起重置。
+      // 少了这一步，面板会继续显示旧数据，而且下一次保存又把它们写回存储 ——
+      // 用户看到"已清除"，实际却没清掉。传 false：存储已经被删了，不必再删一次。
+      clearAllData(false);
+      refreshPanel();
+      return;
+    }
     devTree = newVal.devTree || [];
     testTree = newVal.testTree || [];
     devAppId = newVal.devAppId;
@@ -1426,6 +1442,15 @@
       return;
     }
 
+    // 输入框里的账号与快照不一致时绝不能按旧快照算差异：
+    // 那份差异对应的账号，和屏幕上显示的账号不是同一个。
+    var dirtyRoles = accountInputDirty();
+    if (dirtyRoles.length) {
+      showAccountDirty(dirtyRoles);
+      refreshPanel();
+      return;
+    }
+
     var plan = AuthPermMap.plan({
       source: srcSnapshot,
       target: { apps: tgtSnapshot.apps, roles: tgtSnapshot.roles },
@@ -1657,28 +1682,49 @@
   }
 
   /**
-   * 账号输入框被改动 → 作废已采集的预览。
+   * 输入框里的账号与已采集快照是否不一致。返回不一致的角色名数组（空数组=一致）。
    *
-   * 为什么必须做：快照是按"采集那一刻的账号"算的，用户改了输入框之后，
-   * 界面上显示的仍是旧账号的差异，而执行用的也是旧快照 ——
-   * 一点「执行同步」就改错了人。这是最容易发生、后果也最重的误操作路径。
+   * 为什么必须抽成函数、并在两个入口都调用：
+   *   ① 输入框变化时立刻作废旧预览；
+   *   ② **重新计算预览时也要再确认一次**。
+   * 少了 ② 就有个一次点击就能绕过的缺口：用户改了账号名后点一下「刷新差异预览」，
+   * 预览会按旧快照重算、警告被清掉、按钮又变可点 ——
+   * 而屏幕上显示的账号名与实际要改的账号已经不是同一个了。
    */
-  function onAccountInputChanged() {
+  function accountInputDirty() {
     var srcEl = document.getElementById('as-src-account');
     var tgtEl = document.getElementById('as-tgt-account');
-    var srcDirty = srcSnapshot && srcEl && String(srcEl.value).trim() !== String(srcSnapshot.account);
-    var tgtDirty = tgtSnapshot && tgtEl && String(tgtEl.value).trim() !== String(tgtSnapshot.account);
-    if (!srcDirty && !tgtDirty) return;
+    var dirty = [];
+    if (srcSnapshot && srcEl && String(srcEl.value).trim() !== String(srcSnapshot.account)) dirty.push('源');
+    if (tgtSnapshot && tgtEl && String(tgtEl.value).trim() !== String(tgtSnapshot.account)) dirty.push('目标');
+    return dirty;
+  }
 
+  /** 渲染"账号已改动"的警告并作废已算出的计划 */
+  function showAccountDirty(dirty) {
     _userPlan = null;
     var box = document.getElementById('as-user-preview');
     if (box) {
-      box.innerHTML = '<div class="as-pv-del">账号已改动，与已采集的快照不一致。</div>' +
-                      '<div class="as-pv-unres">请重新点「\uD83D\uDCE5 采集源账号 / 采集目标账号」，' +
-                      '再刷新差异预览。</div>';
+      box.innerHTML = '<div class="as-pv-del">' + dirty.join('、') +
+                      '账号已改动，与已采集的快照不一致。</div>' +
+                      '<div class="as-pv-unres">预览与执行都以<strong>采集结果</strong>为准。' +
+                      '请重新点「\uD83D\uDCE5 采集源账号 / 采集目标账号」完成采集。</div>';
     }
     var execBtn = document.getElementById('as-user-exec');
     if (execBtn) execBtn.disabled = true;
+  }
+
+  /**
+   * 账号输入框被改动 → 作废已采集的预览。
+   *
+   * 为什么必须做：快照是按"采集那一刻的账号"算的，用户改了输入框之后，
+   * 界面上若还显示旧账号的差异，执行用的也是旧快照 ——
+   * 一点「执行同步」就改错了人。这是最容易发生、后果也最重的误操作路径。
+   */
+  function onAccountInputChanged() {
+    var dirty = accountInputDirty();
+    if (!dirty.length) return;
+    showAccountDirty(dirty);
   }
 
   function switchTopTab(tab) {
@@ -1698,6 +1744,16 @@
   function renderUserPane() {
     var envEl = document.getElementById('as-user-env');
     if (envEl) envEl.textContent = window.location.hostname;
+
+    // 两个快照都没了（例如 popup 的「清除数据」触发了 clearAllData）时，
+    // 预览区必须回到占位提示 —— 否则会出现"摘要说未采集、下面还挂着上一次差异"
+    // 的矛盾画面，那种画面比空白更容易误导人。
+    if (!srcSnapshot && !tgtSnapshot) {
+      var pvReset = document.getElementById('as-user-preview');
+      if (pvReset && pvReset.innerHTML.indexOf('as-pv-same') === -1) {
+        pvReset.innerHTML = '<div class="as-pv-same">源账号与目标账号都采集后，这里会显示差异。</div>';
+      }
+    }
 
     // 同步方式自动判定，并说明用的是哪条路径 —— 不给用户选错的机会
     var modeEl = document.getElementById('as-user-mode');
@@ -1743,6 +1799,9 @@
       execBtn.title = stopNow || '';
       if (_userBusy) {
         execBtn.textContent = '\u23F3 处理中...';
+      } else if (accountInputDirty().length) {
+        // 账号被改动过：这时 _userPlan 已被作废，按钮显示"执行同步"会让人以为点得动
+        execBtn.textContent = '\u26A0 账号已改动，请重新采集';
       } else if (mismatchNow && _userPlan && !_userPlan.noop) {
         execBtn.textContent = '\u26A0 环境不匹配，禁止写入';
       } else if (blockedNow && _userPlan && !_userPlan.noop) {
@@ -2715,9 +2774,15 @@
     } catch (e) {}
   }
 
+  /**
+   * 转义用于拼进 innerHTML 的动态文本。
+   * 单引号也要转：当前调用点都在元素文本或双引号属性里，单引号暂时无害，
+   * 但只要以后有人把它放进单引号属性就会变成注入点 —— 一并转掉，零成本。
+   */
   function escHtml(s) {
-    if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (s === undefined || s === null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   // ==================== 外部消息 ====================
