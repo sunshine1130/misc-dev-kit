@@ -121,5 +121,7 @@ git config --global http.proxy http://127.0.0.1:7890   # 用完记得 unset
 ## 六、待优化项（维护者）
 
 - [x] ~~收窄权限~~ —— 已完成，见第五节。
-- [ ] `auth-resource-sync/icons/icon128-new.png` 未被任何文件引用，可删。
+- [x] ~~`icons/icon128-new.png` 未被任何文件引用~~ —— 已删除（git 历史里可恢复）。
+- [x] ~~清理运行时消息里的死代码~~ —— 三个无人调用的处理器已删除，
+      只保留 `popup → background` 的 `CLEAR_DATA` 一条清除路径。
 - [ ] 扩展面板显示自身版本号，方便同事自查。
