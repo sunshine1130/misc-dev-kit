@@ -397,8 +397,10 @@
   // 为什么是"白名单 + 默认拒绝"而不是"排除 prod"：
   //   漏判一个生产域名 = 可能真的改掉线上权限；误判一个测试域名 = 多点一次的事。
   //   两者代价完全不对等，所以默认取安全的那一侧。
+  // 为什么 uat 不在白名单：公司口径是 dev/test/uat/prod 四套环境，uat 已是准生产
+  //   （业务方在上面验收），按"生产"对待更符合直觉 —— 需要写时手动开豁免即可。
   // 只看宿主首段：避免把 ".com"、"--" 之类误当关键字命中。
-  var WRITABLE_LABEL_RE = /(dev|test|uat|stg|staging|sit|sandbox)/i;
+  var WRITABLE_LABEL_RE = /(dev|test|sit)/i;
 
   function isWriteAllowed(host) {
     host = String(host || '').toLowerCase();

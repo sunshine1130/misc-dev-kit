@@ -362,14 +362,17 @@ console.log('\n[isWriteAllowed] 环境只读白名单（生产默认只读）');
 
 test('开发/测试类环境允许写入', () => {
   for (const h of ['mdmdev-auth.joyintoy.cn', 'mdmtest-auth.joyintoy.cn', 'dev.joyintoy.cn',
-                   'test.joyintoy.cn', 'uat.joyintoy.cn', 'sit.joyintoy.cn',
+                   'test.joyintoy.cn', 'sit.joyintoy.cn',
                    'localhost', 'localhost:8080', '127.0.0.1']) {
     assert.strictEqual(M.isWriteAllowed(h), true, h + ' 应允许写入');
   }
 });
 
-test('生产与其他不认识的宿主一律只读（默认拒绝）', () => {
-  for (const h of ['auth.joyintoy.cn', 'api.joyintoy.cn', 'joyintoy.cn',
+test('uat / stg / 生产与其他不认识的宿主一律只读（默认拒绝）', () => {
+  // uat 刻意不在白名单：公司口径是 dev/test/uat/prod 四套环境，uat 已是准生产
+  // （业务方在上面验收），按"生产"对待更符合直觉。需要写时手动开豁免。
+  for (const h of ['uat.joyintoy.cn', 'uat-auth.joyintoy.cn', 'stg.joyintoy.cn',
+                   'auth.joyintoy.cn', 'api.joyintoy.cn', 'joyintoy.cn',
                    'prod-auth.joyintoy.cn', 'mdmprod-auth.joyintoy.cn', 'prd.joyintoy.cn',
                    'something.example.com', '']) {
     assert.strictEqual(M.isWriteAllowed(h), false, h + ' 应被判定为只读');

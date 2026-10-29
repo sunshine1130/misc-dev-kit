@@ -166,14 +166,24 @@
 
   <h3>生产环境默认只读（可临时开启）</h3>
   <p>为避免误改线上权限，扩展把<strong>不认识的宿主一律视为生产环境并禁止写入</strong> ——
-     只认可写环境白名单：宿主首段含 <code>dev</code> / <code>test</code> / <code>uat</code> /
-     <code>stg</code> / <code>sit</code>，另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>。</p>
+     可写环境白名单只有：宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code>，
+     另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>。
+     <strong><code>uat</code> 与 <code>stg</code> 被视为准生产，默认只读</strong>
+     （业务方会在 uat 上验收，改错影响面大）。</p>
   <p>被拦时头部会显示 <code>🔒 只读</code> 徽标，两个面板的执行按钮都会变成不可用。
      <strong>只读只挡写操作，采集与差异预览不受影响</strong>，你仍然可以先把差异看清楚。</p>
   <p>确有生产同步需求时，点头部的 <code>开启写入</code>，需要<strong>两步确认</strong>：
      先确认后果（会明确告诉你改错无法自动回滚），再<strong>手动输入当前环境的完整域名</strong>。
      开启后仅对<strong>当前环境、当前页面会话</strong>生效 —— <strong>刷新页面即恢复只读</strong>，
      列表里也不会一直留着一个"已经打开"的开关。</p>
+
+  <h3>执行前会校验环境是否匹配</h3>
+  <p>快照里的用户 ID、应用 ID、角色 ID、资源节点 ID 都<strong>只在采集它的那个环境里有意义</strong>。
+     所以执行时会比对「当前页面环境」与「目标快照所在环境」，<strong>不一致就禁止写入</strong>并明确提示，
+     避免把 A 环境的 ID 拿到 B 环境去改（那样可能改到完全不相干的账号或节点）。</p>
+  <p class="dim">常见触发场景：在 A 环境采集了目标账号，然后切到 B 环境页面处理别的事，
+     回来顺手点了执行。此时<strong>切回 A 环境页面</strong>（或在该页面重新采集）即可。
+     资源同步与用户权限同步都受这条约束。</p>
 
   <h3>大批量移除会再要一次确认</h3>
   <p>单次移除超过 <strong>20 项</strong>权限时（实测跨环境同步存在一次移除上百项的真实场景），

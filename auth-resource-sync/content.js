@@ -49,6 +49,11 @@
   var testTree = [];         // test 完整树
   var devAppId = null;
   var testAppId = null;
+  // 采集时所在的环境宿主。
+  // 资源节点 id 只在采集它的那个环境里有意义 —— 若在 A 采集目标树、切到 B 执行，
+  // 就是拿 A 的 parentId/nodeId 去改 B 的库，会挂到完全不相干的节点上。
+  var devHost = '';
+  var testHost = '';
   var _apiBaseOrigin = null;
   var syncTasks = [];        // 批量同步任务队列: [{sourceNode, sourceChildren, targetParentId, targetParentName}]
   var singleTasks = [];      // 单点更新任务队列: [{sourceNode, targetNodeId, targetNodeName}]
@@ -142,6 +147,8 @@
         testTree = d.testTree || [];
         devAppId = d.devAppId || null;
         testAppId = d.testAppId || null;
+        devHost = d.devHost || '';
+        testHost = d.testHost || '';
         syncTasks = d.syncTasks || [];
         singleTasks = d.singleTasks || [];
         syncMode = d.syncMode || 'batch';
@@ -165,6 +172,8 @@
         testTree: testTree,
         devAppId: devAppId,
         testAppId: testAppId,
+        devHost: devHost,
+        testHost: testHost,
         syncTasks: syncTasks,
         singleTasks: singleTasks,
         syncMode: syncMode,
@@ -183,6 +192,8 @@
     testTree = [];
     devAppId = null;
     testAppId = null;
+    devHost = '';
+    testHost = '';
     syncTasks = [];
     singleTasks = [];
     syncMode = 'batch';
@@ -204,6 +215,8 @@
     testTree = newVal.testTree || [];
     devAppId = newVal.devAppId;
     testAppId = newVal.testAppId;
+    devHost = newVal.devHost || '';
+    testHost = newVal.testHost || '';
     syncTasks = newVal.syncTasks || [];
     singleTasks = newVal.singleTasks || [];
     syncMode = newVal.syncMode || 'batch';
@@ -378,10 +391,12 @@
       if (isSource) {
         devTree = result.tree;
         devAppId = result.appId;
+        devHost = window.location.hostname;
         addLog('\u2705 ' + label + '\u5DF2\u91C7\u96C6: ' + countNodes(devTree) + ' \u4E2A\u8282\u70B9, appId=' + devAppId, 'success');
       } else {
         testTree = result.tree;
         testAppId = result.appId;
+        testHost = window.location.hostname;
         addLog('\u2705 ' + label + '\u5DF2\u91C7\u96C6: ' + countNodes(testTree) + ' \u4E2A\u8282\u70B9, appId=' + testAppId, 'success');
       }
 
@@ -759,7 +774,9 @@
   async function executeSingleUpdates() {
     if (syncStatus === 'syncing') { addLog('\u26A0 \u540C\u6B65\u4E2D...', 'warn'); return; }
     if (singleTasks.length === 0) { addLog('\u26A0 \u5355\u70B9\u961F\u5217\u4E3A\u7A7A', 'warn'); return; }
-    // 资源同步同样是写操作，必须受同一条只读约束
+    // 资源同步同样是写操作：先校验环境一致，再校验是否只读
+    var resMismatch = resTreeEnvMismatch();
+    if (resMismatch) { addLog('\u26A0 已阻止写入：' + resMismatch, 'error'); refreshPanel(); return; }
     var blockedWrite = writeBlockedReason();
     if (blockedWrite) { addLog('\u26A0 已阻止写入：' + blockedWrite, 'error'); refreshPanel(); return; }
 
@@ -891,7 +908,9 @@
   async function executeSync() {
     if (syncStatus === 'syncing') { addLog('\u26A0 同步中...', 'warn'); return; }
     if (syncTasks.length === 0) { addLog('\u26A0 同步队列为空', 'warn'); return; }
-    // 资源同步同样是写操作，必须受同一条只读约束
+    // 资源同步同样是写操作：先校验环境一致，再校验是否只读
+    var resMismatch2 = resTreeEnvMismatch();
+    if (resMismatch2) { addLog('\u26A0 已阻止写入：' + resMismatch2, 'error'); refreshPanel(); return; }
     var blockedWrite = writeBlockedReason();
     if (blockedWrite) { addLog('\u26A0 已阻止写入：' + blockedWrite, 'error'); refreshPanel(); return; }
 
@@ -1162,6 +1181,36 @@
   }
 
   /**
+   * 校验「当前页面环境」是否就是「目标快照所在的环境」。
+   *
+   * 为什么必须校验：写入用的是**当前页面**的 token 与接口基址，而目标快照里的
+   * userId、appIdList、roleIdList 全是**采集时那个环境**的 ID。
+   * 若快照采自 A 环境、人却站在 B 环境点执行，就是拿 A 的 ID 去改 B 的库 ——
+   * B 环境里那些 ID 属于谁完全未知，可能改到任意一个不相干的账号上。
+   * 返回空串表示一致（可以写），否则返回原因。
+   */
+  function targetEnvMismatch() {
+    if (!tgtSnapshot || !tgtSnapshot.env || !tgtSnapshot.env.host) return '';
+    var now = window.location.hostname;
+    if (String(tgtSnapshot.env.host) === String(now)) return '';
+    return '目标账号「' + tgtSnapshot.account + '」是在「' + tgtSnapshot.env.host +
+           '」采集的，但当前页面是「' + now + '」。在别的环境执行会把权限写到错误的环境，' +
+           '请切回 ' + tgtSnapshot.env.host + ' 的页面再执行。';
+  }
+
+  /**
+   * 资源同步版的同款校验：目标资源树是在哪个环境采集的，就必须在哪个环境执行。
+   * 资源节点 id 只在采集它的环境里有意义，跨环境用会挂到不相干的节点上。
+   */
+  function resTreeEnvMismatch() {
+    if (!testHost) return '';   // 老数据没有记录宿主，不做无法验证的拦截
+    var now = window.location.hostname;
+    if (String(testHost) === String(now)) return '';
+    return '目标数据是在「' + testHost + '」采集的，但当前页面是「' + now +
+           '」。在别的环境执行会把资源写到错误的环境，请切回 ' + testHost + ' 的页面再执行。';
+  }
+
+  /**
    * 解除本环境的只读限制 —— 两步确认。
    * 这一步等于把"生产只读"这道兜底暂时拆掉，必须让人明确知道自己在做什么：
    * 第一步 confirm 讲清后果，第二步要求手动敲完整域名（防手滑、也防别人代点）。
@@ -1384,6 +1433,11 @@
     _userPlan = plan;
 
     var html = '';
+    // 当前环境与目标快照不一致是最危险的情况（会写到错误的环境），必须放最前面
+    var mismatchPv = targetEnvMismatch();
+    if (mismatchPv) {
+      html += '<div class="as-pv-danger">\u26A0 环境不匹配，禁止写入：' + escHtml(mismatchPv) + '</div>';
+    }
     // 移除规模超阈值时在预览顶部就给强提示 —— 不要等到确认框才让人发现
     if (!plan.noop) {
       var removedTotal = plan.appDiff.removed.length + plan.roleDiff.removed.length;
@@ -1478,6 +1532,11 @@
     if (!_userPlan) { addLog('[用户同步] 请先刷新差异预览', 'warn'); refreshPanel(); return; }
     if (!tgtSnapshot) return;
     if (_userPlan.noop) { addLog('[用户同步] 权限已一致，未发送任何写请求', 'success'); refreshPanel(); return; }
+
+    // 环境一致性：写入必须发生在「目标快照所在的环境」——
+    // 换到别的环境后，快照里的 userId / appId / roleId 含义完全不同。
+    var mismatch = targetEnvMismatch();
+    if (mismatch) { addLog('[用户同步] 已阻止写入：' + mismatch, 'error'); refreshPanel(); return; }
 
     // 生产/受保护环境默认只读；确需写入要在头部手动开启豁免
     var blocked = writeBlockedReason();
@@ -1673,13 +1732,17 @@
 
     var execBtn = document.getElementById('as-user-exec');
     if (execBtn) {
-      // 只读环境必须让按钮直接呈现不可用 —— 若只靠点击时的守卫拦下来，
-      // 用户会以为功能坏了，也看不出"需要先在头部开启写入"。
+      // 只读环境或环境不匹配，都必须让按钮直接呈现不可用 —— 若只靠点击时的
+      // 守卫拦下来，用户会以为功能坏了，也看不出"需要先切回目标环境 / 开启写入"。
       var blockedNow = writeBlockedReason();
-      execBtn.disabled = _userBusy || !_userPlan || _userPlan.noop || !!blockedNow;
-      execBtn.title = blockedNow || '';
+      var mismatchNow = targetEnvMismatch();
+      var stopNow = mismatchNow || blockedNow;
+      execBtn.disabled = _userBusy || !_userPlan || _userPlan.noop || !!stopNow;
+      execBtn.title = stopNow || '';
       if (_userBusy) {
         execBtn.textContent = '\u23F3 处理中...';
+      } else if (mismatchNow && _userPlan && !_userPlan.noop) {
+        execBtn.textContent = '\u26A0 环境不匹配，禁止写入';
       } else if (blockedNow && _userPlan && !_userPlan.noop) {
         execBtn.textContent = '\uD83D\uDD12 只读环境，禁止写入';
       } else if (_userPlan && !_userPlan.noop) {
@@ -2503,12 +2566,16 @@
     var execBtn = document.getElementById('as-exec-sync');
     var total = syncMode === 'single' ? singleTasks.length : syncTasks.length;
     if (execBtn) {
-      // 资源同步同样受"生产只读"约束，按钮也要如实呈现
+      // 资源同步同样受「环境一致 + 生产只读」两条约束，按钮要如实呈现，不能只在点击时才拦
+      var resMismatchBtn = resTreeEnvMismatch();
       var resBlocked = writeBlockedReason();
-      execBtn.disabled = syncStatus === 'syncing' || !!resBlocked;
-      execBtn.title = resBlocked || '';
+      var resStop = resMismatchBtn || resBlocked;
+      execBtn.disabled = syncStatus === 'syncing' || !!resStop;
+      execBtn.title = resStop || '';
       execBtn.textContent = syncStatus === 'syncing' ? '\u23F3 \u540C\u6B65\u4E2D...'
-        : (resBlocked ? '\uD83D\uDD12 \u53EA\u8BFB\u73AF\u5883' : ('\uD83D\uDCE4 \u6267\u884C\u961F\u5217 (' + total + ')'));
+        : (resMismatchBtn ? '\u26A0 \u73AF\u5883\u4E0D\u5339\u914D'
+          : (resBlocked ? '\uD83D\uDD12 \u53EA\u8BFB\u73AF\u5883'
+            : ('\uD83D\uDCE4 \u6267\u884C\u961F\u5217 (' + total + ')')));
     }
 
     // 单点/批量按钮显示切换
