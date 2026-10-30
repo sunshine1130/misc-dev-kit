@@ -21,6 +21,11 @@
   var _reqIdCounter = 0;
   var _apiBaseOrigin = null;
 
+  // 只读环境的临时写入豁免：**只记内存、只对当前宿主生效**，刷新页面即失效。
+  // 为什么不做成持久开关：一个"打开过一次就一直在那"的写入开关，迟早会在
+  // 没人注意的时候放行一次生产写入 —— 那种事故没人会当场发现。
+  var _writeOverrideHost = '';
+
   // ==================== 初始化 ====================
   var isDictPage = false;
   var _lastUrl = '';
@@ -259,13 +264,79 @@
     return _apiBaseOrigin;
   }
 
+  /**
+   * API 层的写入兜底：写接口 + 只读环境 = 抛错。
+   *
+   * 为什么单独抽成一个函数：它是"按钮置灰"之外真正的安全边界，而按钮置灰只是
+   * 让人看得见。抽出来才能用 node 直接单测这段组合逻辑（见 tests/write-guard.test.cjs），
+   * 否则删掉它不会有任何测试变红。
+   *
+   * 注意它**只拦写**：只读环境下采集/查询照常可用 —— 只读的语义是"不能改"，
+   * 不是"不能用"。把读也拦掉会让人在生产连数据都看不到。
+   */
+  function guardWrite(apiPath) {
+    if (!EnvGuard.isWritePath(apiPath)) return;
+    var why = writeBlockedReason();
+    if (why) throw new Error('已阻止写入：' + why);
+  }
+
   async function callApi(apiPath, data) {
+    guardWrite(apiPath);
     var token = localStorage.getItem('Admin-Token');
     token = token ? 'Bearer ' + token : '';
     var fullPath = _apiBaseOrigin ? (_apiBaseOrigin + apiPath) : apiPath;
     var resp = await sendToInject({ type: 'CALL_API', apiPath: fullPath, data: data, token: token });
     if (resp.success) return resp.data;
     throw new Error(resp.error || 'API error');
+  }
+
+  // ==================== 环境闸（写入限制） ====================
+  /**
+   * 当前环境是否被禁止写入。返回空串表示允许。
+   *
+   * 判定顺序：先看白名单（EnvGuard），再看本页是否开了豁免。
+   * 白名单外的环境默认只读 —— 默认拒绝而不是默认放行，这是刻意的：
+   * 字典同步是往库里写配置，写错生产的代价远大于"多问一句"。
+   */
+  function writeBlockedReason() {
+    var host = window.location.hostname;
+    if (EnvGuard.isWriteAllowed(host)) return '';
+    if (_writeOverrideHost && _writeOverrideHost === host) return '';
+    return EnvGuard.writeBlockReason(host);
+  }
+
+  /**
+   * 解除本环境的只读限制 —— 两步确认。
+   * 第一步 confirm 讲清后果，第二步要求手敲完整域名（防手滑、也防别人代点）。
+   */
+  function enableWriteOverride() {
+    var host = window.location.hostname;
+    // 文案必须如实说明当前是哪类环境：只读覆盖 uat/stg/prod/未知多类，
+    // 一律叫"生产"会让人以为插件认错了环境。
+    if (!window.confirm(
+      '\u26A0 当前环境「' + host + '」是' + EnvGuard.envLabel(host) + '环境，默认禁止写入。\n\n' +
+      '开启后将允许本扩展修改该环境的字典配置 ——\n' +
+      '这是真实数据，改动会立即生效，本工具没有撤销。\n\n' +
+      '确定要开启吗？'
+    )) return;
+
+    var typed = window.prompt(
+      '为避免误操作，请输入当前环境的完整域名以确认：\n' + host, '');
+    if (typed === null) { addLog('写入开关：已取消', 'warn'); refreshPanel(); return; }
+    if (String(typed).trim().toLowerCase() !== host.toLowerCase()) {
+      addLog('✗ 写入开关：域名输入不一致，未开启写入', 'error');
+      refreshPanel(); return;
+    }
+
+    _writeOverrideHost = host;
+    addLog('\u26A0 已对 ' + host + ' 开启写入（仅本次页面会话有效，刷新即恢复只读）', 'warn');
+    refreshPanel();
+  }
+
+  function disableWriteOverride() {
+    _writeOverrideHost = '';
+    addLog('已恢复只读', 'success');
+    refreshPanel();
   }
 
   // ==================== 日志 ====================
@@ -532,6 +603,15 @@
   async function syncSelected() {
     if (syncStatus === 'syncing') { addLog('⚠ 同步中...', 'warn'); return; }
 
+    // 环境闸放在最前面，而不是等跑到写接口才拦：只读环境点下去应当立刻被
+    // 明确告知原因，而不是先"采集中"转一圈再报一堆错。
+    var blockedWhy = writeBlockedReason();
+    if (blockedWhy) {
+      addLog('✗ 已阻止写入：' + blockedWhy, 'error');
+      refreshPanel();
+      return;
+    }
+
     var selTypes = countSelectedTypes();
     var selValues = countSelectedValues();
     if (selTypes === 0 && selValues === 0) { addLog('⚠ 没有勾选任何数据', 'warn'); return; }
@@ -726,7 +806,16 @@
           '<span id="ds-badge" class="dict-sync-badge" style="display:none">0</span>' +
         '</div>' +
         '<div id="ds-body" class="dict-sync-body" style="display:none;width:' + PANEL_WIDTH + '">' +
-          '<div id="ds-header" class="dict-sync-header"><span>Dict Sync</span><span id="ds-close" class="dict-sync-close">✕</span></div>' +
+          // 头部：标题 + 版本号 + 当前环境 + 只读状态 / 写入开关。
+          // 版本号从 manifest 读，不再手抄 —— 同事报问题时第一句就能自查版本。
+          // 环境与只读状态放头部（而不是藏在设置里）：误写生产之前，这是最后一眼。
+          '<div id="ds-header" class="dict-sync-header">' +
+            '<span>Dict Sync <span id="ds-version" style="font-size:10px;font-weight:500;opacity:.75"></span></span>' +
+            '<span id="ds-env" style="font-size:10px;font-weight:500;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.18)"></span>' +
+            '<span id="ds-write-lock" style="display:none;font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.24)"></span>' +
+            '<button id="ds-write-toggle" style="display:none;font-size:10px;font-weight:600;padding:2px 7px;border:none;border-radius:8px;background:rgba(255,255,255,.24);color:#fff;cursor:pointer;font-family:inherit">开启写入</button>' +
+            '<span id="ds-close" class="dict-sync-close">✕</span>' +
+          '</div>' +
           '<div id="ds-content" class="dict-sync-content">' +
             // ── 工具栏 ──
             '<div class="ds-toolbar">' +
@@ -760,6 +849,10 @@
         '</div>';
       document.body.appendChild(panelEl);
 
+      // 版本号从 manifest 读，不手抄：同事报问题时第一句就能自查版本
+      var vEl = document.getElementById('ds-version');
+      if (vEl) vEl.textContent = 'v' + chrome.runtime.getManifest().version;
+
       // 事件绑定
       safeBind('ds-toggle', 'click', function () {
         isPanelOpen = !isPanelOpen;
@@ -776,6 +869,10 @@
       safeBind('ds-del-sel', 'click', deleteSelected);
       safeBind('ds-help', 'click', function () {
         window.open(chrome.runtime.getURL('help.html'), '_blank');
+      });
+      safeBind('ds-write-toggle', 'click', function () {
+        if (_writeOverrideHost === window.location.hostname) disableWriteOverride();
+        else enableWriteOverride();
       });
       safeBind('ds-capture', 'click', captureAll);
       safeBind('ds-clear-all', 'click', clearAll);
@@ -1105,11 +1202,42 @@
     // 列表
     renderList();
 
-    // 同步按钮
+    // ── 环境闸：环境徽标 / 只读徽标 / 写入开关 ──
+    var host = window.location.hostname;
+    var envEl = document.getElementById('ds-env');
+    if (envEl) {
+      envEl.textContent = EnvGuard.shortEnv(host);
+      envEl.title = host + '（' + EnvGuard.envLabel(host) + '环境）';
+    }
+    var lockEl = document.getElementById('ds-write-lock');
+    var togEl = document.getElementById('ds-write-toggle');
+    var overrideOn = (_writeOverrideHost === host);
+    var whiteListed = EnvGuard.isWriteAllowed(host);
+    if (lockEl) {
+      if (whiteListed) { lockEl.style.display = 'none'; }
+      else if (overrideOn) { lockEl.style.display = ''; lockEl.textContent = '\u26A0 已开启写入'; }
+      else { lockEl.style.display = ''; lockEl.textContent = '\uD83D\uDD12 只读'; }
+    }
+    if (togEl) {
+      // 白名单内的环境不给这个按钮：那里本来就能写，多一个开关只会让人以为
+      // "默认是不能写的"，反而增加误操作。
+      togEl.style.display = whiteListed ? 'none' : '';
+      togEl.textContent = overrideOn ? '恢复只读' : '开启写入';
+      togEl.title = overrideOn
+        ? '恢复只读（刷新页面也会自动恢复）'
+        : ('临时允许写入 ' + host);
+    }
+
+    // 同步按钮：只读环境下直接置灰并写明原因。
+    // 只在点击时才拦的话，用户看到的是一个点得动、点了却什么都不发生的按钮，
+    // 会以为功能坏了，也看不出"需要先开启写入"。
     var syncBtn = document.getElementById('ds-sync-sel');
     if (syncBtn) {
-      syncBtn.disabled = syncStatus === 'syncing';
-      syncBtn.textContent = syncStatus === 'syncing' ? '⏳' : '📤 同步选中';
+      var stopNow = writeBlockedReason();
+      syncBtn.disabled = syncStatus === 'syncing' || !!stopNow;
+      syncBtn.title = stopNow || '';
+      syncBtn.textContent = syncStatus === 'syncing' ? '⏳'
+        : (stopNow ? '\uD83D\uDD12 只读环境，禁止写入' : '📤 同步选中');
     }
 
     // ── 同步结果条 ──
@@ -1161,7 +1289,11 @@
 
   function disableSyncBtn(disabled) {
     var btn = document.getElementById('ds-sync-sel');
-    if (btn) { btn.disabled = disabled; btn.textContent = disabled ? '⏳ 采集中' : '📤 同步选中'; }
+    if (!btn) return;
+    if (disabled) { btn.disabled = true; btn.textContent = '⏳ 采集中'; return; }
+    // 恢复时交回 refreshPanel：这里若直接写死'📤 同步选中'，会把只读环境下的
+    // "🔒 只读环境，禁止写入"文案冲掉，出现"文案说能同步、点了却被拦"的矛盾。
+    refreshPanel();
   }
 
   function pulseToggle() {

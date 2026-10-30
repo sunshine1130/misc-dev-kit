@@ -27,6 +27,10 @@ function createContext(callApi, values = []) {
     log() {},
     addLog() {},
     ensureApiBaseOrigin: async () => {},
+    // 环境闸的桩：本用例只验"字典值的查改逻辑"（先查后改、模糊只认精确命中），
+    // 不验写入限制。只读拦截由 tests/env-guard.test.cjs（规则层）与
+    // .local-docs/ui-dictguard-test.cjs（真实浏览器 UI 层）覆盖。
+    writeBlockedReason: () => '',
   });
   vm.runInContext(source.slice(start, end), context);
   context.sleep = async () => {};

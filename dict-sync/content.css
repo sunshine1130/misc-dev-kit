@@ -54,9 +54,11 @@
 .dict-sync-header {
   background: linear-gradient(145deg, #7c6ff7 0%, #5b4fcf 100%);
   color: #fff; padding: 8px 14px; font-size: 13px; font-weight: 600;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 6px;
   user-select: none; flex-shrink: 0; letter-spacing: .3px;
 }
+/* 关闭按钮始终贴最右：头部左侧元素会随环境/只读状态增减，不能让 ✕ 跟着漂 */
+#ds-close { margin-left: auto; }
 .dict-sync-close {
   cursor: pointer; opacity: .7; font-size: 14px;
   width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;

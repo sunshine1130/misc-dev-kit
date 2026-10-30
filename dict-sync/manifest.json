@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Dict Sync - 字典同步工具",
-  "version": "1.0.0",
-  "description": "将 dev 环境的字典配置同步到 test 环境",
+  "version": "1.1.0",
+  "description": "将 dev 环境的字典配置同步到 test 环境（生产环境只读）",
   "permissions": [
     "storage",
     "activeTab"
@@ -14,7 +14,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["env-guard.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_end"
     }

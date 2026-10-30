@@ -101,12 +101,38 @@
 </div>
 
 <div class="card">
+  <h2>🔒 生产环境默认只读</h2>
+  <p>同步是<b>往数据库写配置</b>，写错生产的代价远大于多问一句，所以插件按域名判断能不能写：</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;margin:6px 0">
+    <tr style="background:#fafafa">
+      <th style="text-align:left;padding:4px 6px">宿主</th>
+      <th style="text-align:left;padding:4px 6px">识别为</th>
+      <th style="text-align:left;padding:4px 6px">可写</th>
+    </tr>
+    <tr><td style="padding:4px 6px"><code>mdmdev.joyintoy.cn</code></td><td style="padding:4px 6px">开发</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
+    <tr><td style="padding:4px 6px"><code>mdmtest.joyintoy.cn</code></td><td style="padding:4px 6px">测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
+    <tr><td style="padding:4px 6px"><code>uat-auth.joyintoy.cn</code></td><td style="padding:4px 6px">验收测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
+    <tr><td style="padding:4px 6px"><code>stg-auth.joyintoy.cn</code></td><td style="padding:4px 6px">预发</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
+    <tr><td style="padding:4px 6px"><code>auth.joyintoy.cn</code> / <code>www.joyintoy.cn</code></td><td style="padding:4px 6px">生产</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
+    <tr><td style="padding:4px 6px">其他任意域名</td><td style="padding:4px 6px">未知</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
+  </table>
+  <p>判定规则：<b>宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code> / <code>uat</code></b>，另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>；
+     其余（含生产、预发、任何未知域名）<b>一律只读</b>。默认拒绝而不是默认放行，这是刻意的。</p>
+  <p>只读时头部会显示 <code>🔒 只读</code> 徽标、「同步选中」置灰并写明原因。
+     <b>只读只挡写，采集与查看照常可用</b> —— 你在生产上仍然能把数据抓下来看，只是同步不出去。</p>
+  <p>确需在生产上同步时，点头部的 <code>开启写入</code>，需要<b>两步确认</b>：
+     先确认后果（会说明改动立即生效、且本工具没有撤销），再<b>手动输入当前环境的完整域名</b>。
+     开启后仅对<b>当前环境、当前页面会话</b>生效 —— <b>刷新页面即恢复只读</b>，不会一直留着一个"已经打开"的开关。</p>
+</div>
+
+<div class="card">
   <h2>⚠️ 注意事项</h2>
   <ul>
     <li>同步前在 <b>test 页面先搜索一次</b>，确保插件检测到正确的 API 地址</li>
     <li>切换到 test 标签页后，打开面板会自动从存储刷新数据，无需手动刷新</li>
     <li>字典的 <code>belongingProjectList</code> 同步时设为空数组（因列表 API 只返回展示文本，无法还原为项目编码）</li>
     <li>同步使用 <b>先查后改</b> 策略：test 已有则走编辑接口，没有则走新增接口</li>
+    <li>头部徽标显示当前环境简称，鼠标悬停可看完整域名；旁边是扩展版本号（报问题时先对一下）</li>
   </ul>
 </div>
 
