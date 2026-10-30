@@ -249,6 +249,9 @@
     syncMode = newVal.syncMode || 'batch';
     srcSnapshot = newVal.srcSnapshot || null;
     tgtSnapshot = newVal.tgtSnapshot || null;
+    // 撤销记录也必须跟着同步：在 A 标签页执行完同步后切到 B 标签页（同一环境）
+    // 准备撤销时，若这里不同步，B 页面的撤销入口根本不会出现。
+    lastUserSync = newVal.lastUserSync || null;
     refreshPanel();
   });
 
@@ -1145,6 +1148,10 @@
     syncLog.push({ msg: msg, type: type, time: new Date().toLocaleTimeString() });
     if (syncLog.length > 200) syncLog.shift();
     console.log('[Auth Sync] ' + msg);
+    // 立刻刷新日志区：addLog 也会在 refreshPanel 这个整体重绘之外被调用
+    // （例如跨标签页回填账号），不刷的话那条记录得等下一次重绘才出现 ——
+    // 而"悄悄改了输入框却不留痕"正是让人以为出了 bug 的原因。
+    renderLog();
   }
   function log() { console.log.apply(console, arguments); }
 
@@ -1984,14 +1991,22 @@
       }
     }
 
-    // 输入框按环境着色 + 徽标显示环境简称。
-    // 两个环境常有同名账号，这是唯一能一眼确认"源数据采自哪"的手段。
-    applyEnvStyle('as-src-account', 'as-src-env', srcSnapshot);
-    applyEnvStyle('as-tgt-account', 'as-tgt-env', tgtSnapshot);
+    // 顺序不能反：必须先回填、再着色。
+    // 徽标是否显示「待采集」取决于"框里的字是否等于快照账号"，先着色的话用的还是
+    // 回填前的旧值，会把一个刚刚重新对上的框错标成待采集。
+    //
     // 跨环境时源快照是在另一个标签页采集的，这里把账号名回填，
     // 否则切过来只看到空的源输入框，会误以为没采到。
     restoreAccountInput('as-src-account', srcSnapshot, 'src');
     restoreAccountInput('as-tgt-account', tgtSnapshot, 'tgt');
+
+    // 输入框按环境着色 + 徽标显示环境简称。
+    // 两个环境常有同名账号，这是唯一能一眼确认"源数据采自哪"的手段。
+    applyEnvStyle('as-src-account', 'as-src-env', srcSnapshot);
+    applyEnvStyle('as-tgt-account', 'as-tgt-env', tgtSnapshot);
+    // 回填后两者可能已经重新对上，那条"账号已改动"的红字若还留着，
+    // 会与已经可点的按钮互相矛盾（用户刚在另一个环境采完、切回来就看到红字）。
+    if (!accountInputDirty().length) clearAccountDirtyNotice();
 
     var snapEl = document.getElementById('as-user-snap');
     if (snapEl) {
@@ -2146,19 +2161,41 @@
   var _restoredAt = { src: 0, tgt: 0 };
 
   /**
-   * 输入框为空时用快照里的账号回填（同一个快照只回填一次）。
-   * 三个限制都不能省：
-   *   1. 同一快照只回填一次 —— 否则会把用户手动清空的内容立刻填回来；
-   *   2. 已有内容不覆盖 —— 不打断用户输入或粘贴；
-   *   3. 正在输入时不动 —— refreshPanel 触发很频繁，否则光标会被抢走。
+   * 用快照里的账号回填输入框，让框里始终反映"最近采到的那个账号"。
+   *
+   * 唯一的限制是"同一快照只回填一次"：refreshPanel 触发极频繁，若每次都回填，
+   * 用户手动清空或正在改的内容会被立刻填回来 —— 等于和用户抢输入框。
+   *
+   * 注意这里**会覆盖**框里已有的旧账号，也不会因为"框正被聚焦"而跳过，
+   * 两处都是刻意的，理由见函数内注释。
    */
   function restoreAccountInput(inputId, snap, which) {
     var input = document.getElementById(inputId);
     if (!input || !snap) return;
     if (_restoredAt[which] === snap.capturedAt) return;
-    if (document.activeElement === input) return;
-    if (!input.value) input.value = snap.account || '';
+
+    // 没有"正在输入就不动"的守卫，这是刻意的：跨环境时用户正是停在源账号框上、
+    // 切到另一个标签页采集，切回来时那个框仍然是 document.activeElement ——
+    // 加焦点守卫恰好会把这种情况挡掉，人明明照做了却看到框没变、按钮点不动。
+    // 防抢输入框靠的是上一行的"同一快照只回填一次"：只有真正发生采集
+    // （capturedAt 变化）才会覆盖，平时打字、清空、重绘都不受影响。
+
+    // 新快照一落地就回填，**包括覆盖框里那个与快照不同的旧账号**。
+    //
+    // 为什么必须覆盖（而不是原先的"只在框为空时才填"）：跨环境时源快照是在
+    // 另一个标签页采集的。在那边采完切回来，如果这里还留着上一次输入框里的
+    // 旧账号，就会被立刻判成"账号已改动"、执行按钮点不动 —— 用户明明照做了
+    // 却被拦住，看上去就是功能坏了。输入框应当反映"最近采到的那个账号"。
+    //
+    var target = snap.account || '';
+    var replaced = input.value !== '' && input.value !== target;
+    input.value = target;
     _restoredAt[which] = snap.capturedAt;
+    if (replaced) {
+      // 悄悄改掉用户打过的字会让人以为出了 bug，所以留痕
+      addLog('[用户同步] 已按新采集的快照回填' + (which === 'src' ? '源' : '目标') +
+             '账号：' + target, 'info');
+    }
   }
 
   /**
