@@ -25,7 +25,9 @@ git pull
 if errorlevel 1 (
   echo.
   echo [失败] git pull 出错，常见原因：
-  echo        1. 需要登录但没有仓库权限（私有仓库要先被加为 Collaborator）
+  echo        1. 网络不通 / 被代理拦了（仓库是公开的，不需要 GitHub 账号）
+  echo           - 挂上代理后重试：git config --global http.proxy http://127.0.0.1:7890
+  echo             （用完记得 git config --global --unset http.proxy）
   echo        2. 本机证书栈异常：报 schannel / SEC_E_NO_CREDENTIALS
   echo           - 先试着重启电脑
   echo           - 应急办法：把 PAT 写进 remote URL（见 README 第四节）
