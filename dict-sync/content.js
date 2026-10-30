@@ -7,8 +7,15 @@
 
   // ==================== 常量 ====================
   var STORAGE_KEY = 'dict_sync_data';
+  // 面板尺寸单独存一个键：它跟"采集到的字典数据"不是一回事，
+  // 混在 STORAGE_KEY 里会被「清除」一并抹掉，用户拖好的大小又白设了。
+  var PANEL_SIZE_KEY = 'dict_sync_panel_size';
   var INJECT_SCRIPT = chrome.runtime.getURL('inject.js');
-  var PANEL_WIDTH = '380px';
+
+  // 面板尺寸。默认值同时也是"没拖过"的兜底；高度为 0 表示交给 CSS 的 min(76vh,720px)。
+  var PANEL_DEFAULT_WIDTH = 560;
+  var PANEL_MIN_WIDTH = 360;
+  var PANEL_MIN_HEIGHT = 300;
 
   // ==================== 状态 ====================
   var isPanelOpen = false;
@@ -20,6 +27,9 @@
   var syncLog = [];
   var _reqIdCounter = 0;
   var _apiBaseOrigin = null;
+
+  // 面板尺寸（用户拖过才有值）：{ width, height }；height=0 表示用 CSS 默认高度
+  var panelSize = { width: 0, height: 0 };
 
   // 只读环境的临时写入豁免：**只记内存、只对当前宿主生效**，刷新页面即失效。
   // 为什么不做成持久开关：一个"打开过一次就一直在那"的写入开关，迟早会在
@@ -49,6 +59,7 @@
 
     injectPageScript();
     await loadStoredData();
+    await loadPanelSize();
     ensureSelectionFlags();
     window.addEventListener('message', handlePageMessage);
     createFloatingPanel();
@@ -72,7 +83,9 @@
         // 从非字典页进入字典页
         if (!panelEl) {
           injectPageScript();
-          loadStoredData().then(function () {
+          // 尺寸也要一起读：这里创建的面板同样要用用户拖过的大小，
+          // 漏掉就会表现为"刷新后尺寸丢了，切个路由又变回来"的诡异现象。
+          Promise.all([loadStoredData(), loadPanelSize()]).then(function () {
             ensureSelectionFlags();
             createFloatingPanel();
           });
@@ -288,6 +301,77 @@
     var resp = await sendToInject({ type: 'CALL_API', apiPath: fullPath, data: data, token: token });
     if (resp.success) return resp.data;
     throw new Error(resp.error || 'API error');
+  }
+
+  // ==================== 面板尺寸 ====================
+  /**
+   * 把尺寸施加到面板上。
+   *
+   * 高度做视口钳制：用户可能在 4K 屏上把面板拖得很高，换到笔记本后若不钳制，
+   * 面板顶部会跑到屏幕外，连标题栏都点不到 —— 那就等于把自己关在门外。
+   */
+  function applyPanelSize() {
+    var body = document.getElementById('ds-body');
+    if (!body) return;
+    body.style.width = (panelSize.width || PANEL_DEFAULT_WIDTH) + 'px';
+    if (panelSize.height) {
+      var maxH = Math.max(PANEL_MIN_HEIGHT, window.innerHeight - 120);
+      body.style.height = Math.min(panelSize.height, maxH) + 'px';
+    } else {
+      body.style.height = '';   // 交给 CSS 的 min(76vh, 720px)
+    }
+  }
+
+  async function loadPanelSize() {
+    try {
+      var result = await chrome.storage.local.get(PANEL_SIZE_KEY);
+      var s = result && result[PANEL_SIZE_KEY];
+      if (s && s.width) panelSize = { width: s.width, height: s.height || 0 };
+    } catch (e) { /* 读不到就用默认值，不该因为一个尺寸把面板搞挂 */ }
+  }
+
+  function savePanelSize(w, h) {
+    panelSize = { width: w, height: h || 0 };
+    var obj = {};
+    obj[PANEL_SIZE_KEY] = panelSize;
+    try { chrome.storage.local.set(obj); } catch (e) {}
+  }
+
+  /**
+   * 左下角拖拽改尺寸。
+   * 面板锚定在右下角，所以左移=变宽、上移=变高；用 rect 的实时宽高做基准，
+   * 而不是累加每次移动的增量（累加会把误差一点点攒起来，手感越拖越飘）。
+   */
+  function setupResize() {
+    var grip = document.getElementById('ds-resize');
+    var body = document.getElementById('ds-body');
+    if (!grip || !body) return;
+
+    grip.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var startX = e.clientX, startY = e.clientY;
+      var rect = body.getBoundingClientRect();
+      var startW = rect.width, startH = rect.height;
+
+      function onMove(ev) {
+        var w = startW + (startX - ev.clientX);
+        var h = startH + (startY - ev.clientY);
+        w = Math.max(PANEL_MIN_WIDTH, Math.min(w, window.innerWidth - 40));
+        h = Math.max(PANEL_MIN_HEIGHT, Math.min(h, window.innerHeight - 120));
+        body.style.width = Math.round(w) + 'px';
+        body.style.height = Math.round(h) + 'px';
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        var w = parseInt(body.style.width, 10);
+        var h = parseInt(body.style.height, 10);
+        if (w && h) savePanelSize(w, h);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
 
   // ==================== 环境闸（写入限制） ====================
@@ -805,7 +889,9 @@
           '<span class="dict-sync-icon">📋</span>' +
           '<span id="ds-badge" class="dict-sync-badge" style="display:none">0</span>' +
         '</div>' +
-        '<div id="ds-body" class="dict-sync-body" style="display:none;width:' + PANEL_WIDTH + '">' +
+        // 宽高不写死在这里：由 applyPanelSize() 按"用户拖过的大小 / 默认值"统一施加，
+        // 免得行内样式与 CSS 默认值两处各写一份、改一处忘一处。
+        '<div id="ds-body" class="dict-sync-body" style="display:none">' +
           // 头部：标题 + 版本号 + 当前环境 + 只读状态 / 写入开关。
           // 版本号从 manifest 读，不再手抄 —— 同事报问题时第一句就能自查版本。
           // 环境与只读状态放头部（而不是藏在设置里）：误写生产之前，这是最后一眼。
@@ -846,12 +932,17 @@
               '<div id="ds-log" class="dict-sync-log"></div>' +
             '</div>' +
           '</div>' +
+          // 左下角拖拽手柄：字典多的时候把面板拉大，列表跟着变高
+          '<div id="ds-resize" class="ds-resize-grip" title="拖拽调整面板大小"></div>' +
         '</div>';
       document.body.appendChild(panelEl);
 
       // 版本号从 manifest 读，不手抄：同事报问题时第一句就能自查版本
       var vEl = document.getElementById('ds-version');
       if (vEl) vEl.textContent = 'v' + chrome.runtime.getManifest().version;
+
+      applyPanelSize();
+      setupResize();
 
       // 事件绑定
       safeBind('ds-toggle', 'click', function () {
@@ -1175,7 +1266,13 @@
     if (!panelEl) return;
 
     var body = document.getElementById('ds-body');
-    if (body) body.style.display = isPanelOpen ? 'block' : 'none';
+    // 必须是 flex，不能是 block：.dict-sync-body 的布局是纵向 flex 列，
+    // 这里写成 block 会让它退化成普通块容器，里面的 flex:1 全部失效 ——
+    // 结果是 .ds-list 撑到内容高度（几十个字典就是两千多像素）而不是内部滚动，
+    // 再被外层的 overflow:hidden 裁掉，用户根本滚不到下面的条目。
+    // 顺带解释一个历史现象：.ds-list 原来那个 max-height:220px，正是在给
+    // 这个失效的 flex 打补丁。
+    if (body) body.style.display = isPanelOpen ? 'flex' : 'none';
 
     // Badge
     var badge = document.getElementById('ds-badge');
