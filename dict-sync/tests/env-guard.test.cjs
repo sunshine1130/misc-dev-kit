@@ -24,6 +24,38 @@ test('只读环境：生产 / 预发 / 未知域名', () => {
   });
 });
 
+test('★ 用户实测确认的 zt 系列：zt 生产 / test-zt 测试 / uat-zt 验收测试', () => {
+  // dict-sync 就是跑在这套域名上的（用户 2026-10-30 给出）。三种形态都要判对：
+  // 生产是"首段完全没有标记"，测试与 UAT 是"标记作为首段前缀"。
+  assert.equal(G.isWriteAllowed('zt.joyintoy.cn'), false, 'zt 是生产，必须只读');
+  assert.equal(G.isWriteAllowed('test-zt.joyintoy.cn'), true, 'test-zt 是测试环境，可写');
+  assert.equal(G.isWriteAllowed('uat-zt.joyintoy.cn'), true, 'uat-zt 是验收测试，可写');
+
+  assert.equal(G.envLabel('zt.joyintoy.cn'), '生产', '生产不能被说成"未知"');
+  assert.equal(G.envLabel('test-zt.joyintoy.cn'), '测试');
+  assert.equal(G.envLabel('uat-zt.joyintoy.cn'), '验收测试');
+
+  // 生产上的拦截文案必须点明"生产"，否则用户会以为插件不认识这个域名
+  assert.match(G.writeBlockReason('zt.joyintoy.cn'), /是生产环境/);
+});
+
+test('★ 无环境标记的公司主域 = 生产；非公司域的未知域名仍只是未知', () => {
+  for (const h of ['zt.joyintoy.cn', 'auth.joyintoy.cn', 'www.joyintoy.cn', 'joyintoy.cn']) {
+    assert.equal(G.envLabel(h), '生产', h + ' 应标为生产');
+  }
+  assert.equal(G.envLabel('example.com'), '未知');
+  assert.equal(G.envLabel('zt.example.com'), '未知');
+});
+
+test('带环境标记的宿主不会被误判成生产（判定顺序）', () => {
+  // 护栏：实现顺序反了的话，所有带标记的宿主都会变成"生产"，
+  // 测试与 UAT 会被平白锁成只读 —— 那等于把工具废掉。
+  for (const [h, label] of [['test-zt.joyintoy.cn', '测试'], ['uat-zt.joyintoy.cn', '验收测试'],
+                            ['mdmdev-auth.joyintoy.cn', '开发'], ['stg-auth.joyintoy.cn', '预发']]) {
+    assert.equal(G.envLabel(h), label, h + ' 不该被当成生产');
+  }
+});
+
 test('大小写与空白不影响判定', () => {
   assert.equal(G.isWriteAllowed('MDMDEV.joyintoy.cn'), true);
   assert.equal(G.isWriteAllowed('AUTH.JOYINTOY.CN'), false);

@@ -1,19 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Dict Sync - 字典同步工具",
-  "version": "1.2.0",
-  "description": "将 dev 环境的字典配置同步到 test 环境（生产环境只读）",
+  "version": "1.2.1",
+  "description": "将测试环境的字典配置同步到目标环境（生产环境只读）",
   "permissions": [
     "storage",
     "activeTab"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "https://*.joyintoy.cn/*",
+    "http://*.joyintoy.cn/*"
   ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://*.joyintoy.cn/*",
+        "http://*.joyintoy.cn/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
       "js": ["env-guard.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_end"
@@ -22,7 +27,12 @@
   "web_accessible_resources": [
     {
       "resources": ["inject.js", "help.html"],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "https://*.joyintoy.cn/*",
+        "http://*.joyintoy.cn/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ]
     }
   ],
   "action": {

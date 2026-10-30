@@ -75,7 +75,13 @@
     return WRITABLE_LABEL_RE.test(host.split('.')[0]);
   }
 
-  var PROD_HOST_RE = /^(auth|www)\.joyintoy\.cn$/i;
+  // 生产域的判定：公司主域下**不带环境标记**的宿主就是生产。
+  // 不能靠硬编码域名清单 —— 原先只认 auth/www，结果 zt.joyintoy.cn（用户确认是生产）
+  // 落进了"未知环境"：安全上没错（照样只读），但文案会误导：看到"未知"的人会以为
+  // 插件不认识这个域名、跑去翻白名单，而不是明白"这是生产，别写"。
+  // 顺序要紧：必须先排掉带环境标记的（mdmdev-auth / uat-zt / test-zt …），
+  // 否则它们会被误判成生产。
+  var PROD_DOMAIN_RE = /(^|\.)joyintoy\.cn$/i;
   var ENV_LABELS = [
     { re: /prod|prd/i, label: '生产' },
     { re: /stg|staging/i, label: '预发' },
@@ -88,12 +94,12 @@
   function envLabel(host) {
     host = String(host || '');
     if (!host) return '未知';
-    if (PROD_HOST_RE.test(host)) return '生产';
     if (isLocal(host)) return '本地';
     var head = host.split('.')[0];
     for (var i = 0; i < ENV_LABELS.length; i++) {
       if (ENV_LABELS[i].re.test(head)) return ENV_LABELS[i].label;
     }
+    if (PROD_DOMAIN_RE.test(host)) return '生产';
     return '未知';
   }
 
@@ -137,6 +143,6 @@
     writeBlockReason: writeBlockReason,
     isWritePath: isWritePath,
     WRITABLE_LABEL_RE: WRITABLE_LABEL_RE,
-    PROD_HOST_RE: PROD_HOST_RE
+    PROD_DOMAIN_RE: PROD_DOMAIN_RE
   };
 });

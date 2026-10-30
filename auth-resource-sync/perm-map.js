@@ -398,7 +398,9 @@
   //   漏判一个生产域名 = 可能真的改掉线上权限；误判一个测试域名 = 多点一次的事。
   //   两者代价完全不对等，所以默认取安全的那一侧。
   // 白名单含 uat：用户确认 uat 本质仍是测试环境（业务方在上面验收，改错可重来）。
-  //   真正要挡的是生产 —— 即不带环境前缀的 auth.joyintoy.cn（见 PROD_HOST_RE）。
+  //   真正要挡的是生产 —— 即不带环境标记的宿主（见 PROD_DOMAIN_RE）。
+  // 注意匹配的是"首段包含"而不是"首段等于"：实际宿主形如 uat-zt.joyintoy.cn，
+  //   环境标记是首段的一部分（uat-zt / mdmdev-auth），不是整段。
   // 只看宿主首段：避免把 ".com"、"--" 之类误当关键字命中。
   var WRITABLE_LABEL_RE = /(dev|test|sit|uat)/i;
 
@@ -413,12 +415,19 @@
   /**
    * 环境的中文标签，用于提示文案。
    *
-   * 为什么不能一律叫"生产"：只读白名单覆盖 uat / stg / prod 三类，
+   * 为什么不能一律叫"生产"：只读白名单覆盖 uat / stg / prod / 未知多类，
    * 把 uat 说成"生产"会让人以为插件认错了环境 —— 文案必须如实反映当前是哪类环境。
-   * 生产宿主的判定：公司前端是 <env>[-auth].joyintoy.cn 的形态，
-   * 不带环境前缀的 auth.joyintoy.cn 就是生产（用户确认）。
+   *
+   * 生产的判定**不能靠硬编码域名清单**。原先只认 auth/www，结果 zt.joyintoy.cn
+   * （用户确认是生产）落进了"未知环境"：安全上没错（照样只读），但文案会误导 ——
+   * 看到"未知"的人会以为插件不认识这个域名、跑去翻白名单，而不是明白"这是生产，别写"。
+   * 规则改为：公司主域下**不带环境标记**的宿主就是生产。这对 auth / www / zt
+   * 以及以后新增的生产域都成立，不用再维护名单。
+   *
+   * 顺序要紧：必须**先**排掉带环境标记的（mdmdev-auth / uat-zt / test-zt …），
+   * 否则它们会被误判成生产。
    */
-  var PROD_HOST_RE = /^(auth|www)\.joyintoy\.cn$/i;
+  var PROD_DOMAIN_RE = /(^|\.)joyintoy\.cn$/i;
   var ENV_LABELS = [
     { re: /prod|prd/i, label: '生产' },
     { re: /stg|staging/i, label: '预发' },
@@ -431,13 +440,14 @@
   function envLabel(host) {
     host = String(host || '');
     if (!host) return '未知';
-    if (PROD_HOST_RE.test(host)) return '生产';
     if (host === 'localhost' || host.indexOf('localhost') === 0) return '本地';
     if (host === '127.0.0.1' || host.indexOf('127.0.0.1') === 0) return '本地';
     var head = host.split('.')[0];
     for (var i = 0; i < ENV_LABELS.length; i++) {
       if (ENV_LABELS[i].re.test(head)) return ENV_LABELS[i].label;
     }
+    // 无环境标记 + 属于公司主域 → 生产（见上方说明）
+    if (PROD_DOMAIN_RE.test(host)) return '生产';
     return '未知';
   }
 

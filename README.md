@@ -101,20 +101,27 @@ git config --global http.proxy http://127.0.0.1:7890   # 用完记得 unset
 
 ## 五、安全边界（重要）
 
-- **扩展只在公司域名生效**：`content_scripts.matches`、`host_permissions`、`web_accessible_resources`
-  都已收窄为 `*.joyintoy.cn` 加 `localhost` / `127.0.0.1`，不再向任意网站注入脚本。
-- **生产默认只读**：可写白名单为宿主首段含 `dev` / `test` / `sit` / `uat` 的环境，
-  另放行 `localhost`、`127.0.0.1`；**生产与未知域名一律禁止写入**，采集与差异预览不受影响。
-  环境按宿主识别：`mdmdev-*` = 开发、`mdmtest-*` = 测试、`uat-*` = 验收测试、
-  `auth.joyintoy.cn` = 生产（**不带环境前缀的就是生产**），未知域名按**默认拒绝**处理。
-  需要写生产时可在面板头部点「开启写入」，需**两步确认**（确认后果 + 手动输入完整域名），
+- **扩展只在公司域名生效**：`auth-resource-sync` 与 `dict-sync` 的 `content_scripts.matches`、
+  `host_permissions`、`web_accessible_resources` 都已收窄为 `*.joyintoy.cn` 加
+  `localhost` / `127.0.0.1`，不再向任意网站注入脚本。
+- **生产默认只读**（两个扩展同一套规则）：可写白名单为**宿主首段含**
+  `dev` / `test` / `sit` / `uat` 的环境（形如 `test-zt` / `uat-zt` / `mdmtest` 都算），
+  另放行 `localhost`、`127.0.0.1`；**其余一律禁止写入**，采集与查看不受影响。
+  环境按宿主识别：`test-zt.joyintoy.cn` = 测试、`uat-zt.joyintoy.cn` = 验收测试、
+  `mdmdev-*` = 开发、`stg-*` = 预发；**公司主域下不带环境标记的宿主就是生产**
+  （`auth.joyintoy.cn`、`www.joyintoy.cn`、`zt.joyintoy.cn` 都是），
+  非公司域的陌生网站标为"未知"，同样只读 —— 即**默认拒绝**。
+  需要在生产上写时，可在面板头部点「开启写入」，需**两步确认**（确认后果 + 手动输入完整域名），
   且**只对当前环境、当前页面会话有效，刷新即恢复只读**。
 - **执行前校验环境匹配**：快照里的用户/应用/角色/资源 ID 只在采集它的环境里有意义。
   当前页面环境与目标快照环境不一致时**禁止写入**并明确提示，资源同步与用户同步都受此约束。
 - **大批量移除二次确认**：单次移除超过 20 项权限时，除常规确认外还需**手动输入目标账号名**。
 
-> 可写环境白名单在 `auth-resource-sync/perm-map.js` 的 `WRITABLE_LABEL_RE`，
-> 阈值在 `content.js` 的 `REMOVAL_CONFIRM_THRESHOLD`。改动前请先看清两处的注释。
+> 可写环境白名单在 `auth-resource-sync/perm-map.js` 与 `dict-sync/env-guard.js` 的
+> `WRITABLE_LABEL_RE`，阈值在 `auth-resource-sync/content.js` 的 `REMOVAL_CONFIRM_THRESHOLD`。
+> 改动前请先看清注释。**两个扩展各有一份实现且必须保持一致**（独立加载、无构建步骤，
+> 没法共享文件）：`dict-sync/tests/env-guard-consistency.test.cjs` 会同时加载两份并逐项比对，
+> 改任意一份都必须同步改另一份，否则测试变红。
 
 ---
 

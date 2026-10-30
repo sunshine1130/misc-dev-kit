@@ -195,8 +195,11 @@
     <tr><td><code>uat-auth.joyintoy.cn</code></td><td>验收测试</td><td class="green">是</td></tr>
     <tr><td><code>stg-auth.joyintoy.cn</code></td><td>预发</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
     <tr><td><code>auth.joyintoy.cn</code></td><td>生产</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
+    <tr><td><code>zt.joyintoy.cn</code></td><td>生产</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
     <tr><td>其他任意域名</td><td>未知</td><td style="color:#ff4d4f;font-weight:600">否</td></tr>
   </table>
+  <p><strong>公司主域（<code>joyintoy.cn</code>）下不带环境标记的宿主，一律按「生产」处理</strong>，
+     所以文案会直接说"这是生产环境"，而不是含糊的"未知环境"；非公司域的陌生网站标为"未知"，同样只读。</p>
   <p>被拦时头部会显示 <code>🔒 只读</code> 徽标，两个面板的执行按钮都会变成不可用，鼠标悬停可看具体原因。
      <strong>只读只挡写操作，采集与差异预览不受影响</strong>，你仍然可以先把差异看清楚。</p>
   <p>确需在生产上同步时，点头部的 <code>开启写入</code>，需要<strong>两步确认</strong>：

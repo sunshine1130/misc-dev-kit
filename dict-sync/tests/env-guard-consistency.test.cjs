@@ -22,8 +22,12 @@ const HOSTS = [
   'mdmtest.joyintoy.cn', 'mdmtest-auth.joyintoy.cn', 'test.joyintoy.cn',
   'sit-auth.joyintoy.cn', 'uat-auth.joyintoy.cn', 'stg-auth.joyintoy.cn',
   'auth.joyintoy.cn', 'www.joyintoy.cn', 'joyintoy.cn',
+  // 用户 2026-10-30 实测确认的 zt 系列（dict-sync 就跑在这套域名上）
+  'zt.joyintoy.cn', 'test-zt.joyintoy.cn', 'uat-zt.joyintoy.cn',
+  // 无环境标记的其他公司主域：新规则下都算生产
+  'some-other-app.joyintoy.cn',
   'localhost', 'localhost:8080', '127.0.0.1',
-  'example.com', 'a.b.c.d', '', 'prodx.joyintoy.cn', 'MDMDEV.joyintoy.cn'
+  'example.com', 'zt.example.com', 'a.b.c.d', '', 'prodx.joyintoy.cn', 'MDMDEV.joyintoy.cn'
 ];
 
 test('可写判定完全一致', () => {

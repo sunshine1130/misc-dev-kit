@@ -110,15 +110,18 @@
       <th style="text-align:left;padding:4px 6px">识别为</th>
       <th style="text-align:left;padding:4px 6px">可写</th>
     </tr>
+    <tr><td style="padding:4px 6px"><code>test-zt.joyintoy.cn</code></td><td style="padding:4px 6px">测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
+    <tr><td style="padding:4px 6px"><code>uat-zt.joyintoy.cn</code></td><td style="padding:4px 6px">验收测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
     <tr><td style="padding:4px 6px"><code>mdmdev.joyintoy.cn</code></td><td style="padding:4px 6px">开发</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
-    <tr><td style="padding:4px 6px"><code>mdmtest.joyintoy.cn</code></td><td style="padding:4px 6px">测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
-    <tr><td style="padding:4px 6px"><code>uat-auth.joyintoy.cn</code></td><td style="padding:4px 6px">验收测试</td><td style="padding:4px 6px;color:#17a34a">是</td></tr>
+    <tr><td style="padding:4px 6px"><code>zt.joyintoy.cn</code></td><td style="padding:4px 6px;color:#e5484d;font-weight:600">生产</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
     <tr><td style="padding:4px 6px"><code>stg-auth.joyintoy.cn</code></td><td style="padding:4px 6px">预发</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
-    <tr><td style="padding:4px 6px"><code>auth.joyintoy.cn</code> / <code>www.joyintoy.cn</code></td><td style="padding:4px 6px">生产</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
     <tr><td style="padding:4px 6px">其他任意域名</td><td style="padding:4px 6px">未知</td><td style="padding:4px 6px;color:#e5484d;font-weight:600">否</td></tr>
   </table>
-  <p>判定规则：<b>宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code> / <code>uat</code></b>，另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>；
-     其余（含生产、预发、任何未知域名）<b>一律只读</b>。默认拒绝而不是默认放行，这是刻意的。</p>
+  <p>判定规则：<b>宿主首段含 <code>dev</code> / <code>test</code> / <code>sit</code> / <code>uat</code></b>（形如 <code>test-zt</code>、<code>uat-zt</code>、<code>mdmtest</code> 都算），
+     另外放行 <code>localhost</code> 与 <code>127.0.0.1</code>；其余<b>一律只读</b>。默认拒绝而不是默认放行，这是刻意的。</p>
+  <p><b>公司主域（<code>joyintoy.cn</code>）下不带环境标记的宿主，一律按「生产」处理</b>——
+     例如 <code>zt.joyintoy.cn</code>、<code>auth.joyintoy.cn</code>。所以提示文案会直接说"这是生产环境"，
+     而不是含糊的"未知环境"。非公司域的陌生网站标为"未知"，同样只读。</p>
   <p>只读时头部会显示 <code>🔒 只读</code> 徽标、「同步选中」置灰并写明原因。
      <b>只读只挡写，采集与查看照常可用</b> —— 你在生产上仍然能把数据抓下来看，只是同步不出去。</p>
   <p>确需在生产上同步时，点头部的 <code>开启写入</code>，需要<b>两步确认</b>：

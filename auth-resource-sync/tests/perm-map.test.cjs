@@ -377,6 +377,42 @@ test('生产 / 预发 / 未知宿主一律只读（默认拒绝）', () => {
   }
 });
 
+test('★ 用户实测确认的 zt 系列：标记嵌在首段内部（zt / uat-zt / test-zt）', () => {
+  // 用户 2026-10-30 明确给出的三个宿主。必须钉住：生产那个是"首段完全没有标记"
+  // 的形态，而测试/UAT 是"标记作为首段前缀"。两种形态都得判对。
+  assert.strictEqual(M.isWriteAllowed('zt.joyintoy.cn'), false, 'zt 是生产，必须只读');
+  assert.strictEqual(M.isWriteAllowed('test-zt.joyintoy.cn'), true, 'test-zt 是测试环境，可写');
+  assert.strictEqual(M.isWriteAllowed('uat-zt.joyintoy.cn'), true, 'uat-zt 是验收测试，可写');
+  // 生产必须被如实标成"生产"，不能是"未知" —— 见下一条断言的理由
+  assert.strictEqual(M.envLabel('zt.joyintoy.cn'), '生产');
+  assert.strictEqual(M.envLabel('test-zt.joyintoy.cn'), '测试');
+  assert.strictEqual(M.envLabel('uat-zt.joyintoy.cn'), '验收测试');
+});
+
+test('★ 无环境标记的公司主域 = 生产（不再依赖硬编码域名清单）', () => {
+  // 原来只认 auth/www，zt.joyintoy.cn 就落进了"未知环境"：只读判定没错，
+  // 但文案会误导 —— 看到"未知"的人会以为插件不认识这个域名、跑去翻白名单，
+  // 而不是明白"这是生产，别写"。
+  for (const h of ['zt.joyintoy.cn', 'auth.joyintoy.cn', 'www.joyintoy.cn',
+                   'joyintoy.cn', 'some-other-app.joyintoy.cn']) {
+    assert.strictEqual(M.envLabel(h), '生产', h + ' 应标为生产');
+    assert.match(M.writeBlockReason(h), /是生产环境/, h + ' 的拦截文案应点明生产');
+  }
+  // 非公司主域的未知域名仍然只是"未知"，不能说成生产
+  assert.strictEqual(M.envLabel('example.com'), '未知');
+  assert.strictEqual(M.envLabel('zt.example.com'), '未知');
+});
+
+test('带环境标记的宿主不会被误判成生产（判定顺序）', () => {
+  // 这条是上一条的护栏：如果实现的顺序反了（先判主域再判标记），
+  // 那么所有带标记的宿主都会变成"生产"，测试/UAT 会被平白锁成只读。
+  for (const [h, label] of [['test-zt.joyintoy.cn', '测试'], ['uat-zt.joyintoy.cn', '验收测试'],
+                            ['mdmdev-auth.joyintoy.cn', '开发'], ['stg-auth.joyintoy.cn', '预发']]) {
+    assert.strictEqual(M.envLabel(h), label, h + ' 不该被当成生产');
+    assert.notStrictEqual(M.envLabel(h), '生产');
+  }
+});
+
 test('关键词按首段做子串匹配（为了兼容 mdmdev/mdmtest 这类命名）', () => {
   // 公司的前端宿主形如 mdm<env>-auth.joyintoy.cn —— 环境关键词嵌在首段内部、没有分隔符，
   // 所以不能用词边界，只能子串匹配。代价见下条断言，方向是"误放行"而非"误拦截"。
