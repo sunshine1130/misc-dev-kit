@@ -120,6 +120,19 @@
     <span style="color:#389e0d;font-weight:600">test 绿</span> /
     <span style="color:#fa8c16;font-weight:600">uat 橙</span> /
     <span style="color:#cf1322;font-weight:600">prod 红</span>，其他环境按域名哈希取色。
+    <br><br>
+    <strong>改过输入框后，徽标会变成灰色的 <code>⚠ 待采集</code>、框线也转灰</strong> ——
+    因为此时框里的字<strong>不再属于任何一次采集</strong>，再沿用快照的环境色就等于把手输的
+    账号谎报成"采自某环境"。同时摘要行会标出<strong>「输入框已改，此快照待重新采集」</strong>，
+    预览被作废、执行按钮置灰。点一次「采集」让它重新对上即可。
+  </div>
+
+  <div class="note">
+    <strong>「源:」/「目标:」那两行是已采集的快照，不是你输入框里的字。</strong>
+    输入框要<strong>点「采集」才会生效</strong>；快照是采集那一刻的定格，改账号权限后要重新采集才会更新。
+    跨环境时快照<strong>故意跨页面保留</strong>（否则你在 A 环境采的源数据一切页面就没了），
+    所以它显示的一直是<strong>它当初被采集的那个环境</strong>，不会跟着你切页面而变。
+    单个快照超过 24 小时未重采会提示"建议重新采集"。
   </div>
 
   <h3>跨环境怎么操作</h3>

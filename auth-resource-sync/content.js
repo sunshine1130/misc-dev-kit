@@ -1914,8 +1914,30 @@
    */
   function onAccountInputChanged() {
     var dirty = accountInputDirty();
-    if (!dirty.length) return;
-    showAccountDirty(dirty);
+    if (dirty.length) {
+      showAccountDirty(dirty);
+    } else if (clearAccountDirtyNotice()) {
+      // 刚改回快照值：红字必须撤掉，否则人以为仍不一致
+    }
+    // 整屏重绘，而不是只补徽标/摘要。
+    // 这些元素（框色、徽标、摘要行、执行按钮的文案与可用性）全都取决于
+    // "框里的字是否还等于快照账号"。只更新其中一部分就会出现割裂画面：
+    // 按钮已经点不动、文案却还写着「执行同步」，看起来像功能坏了。
+    renderUserPane();
+  }
+
+  /**
+   * 把"账号已改动"的红字提示换成中性提示。
+   * 仅在确实显示着那条红字时才动，避免覆盖掉正常的预览结果。
+   * @returns {boolean} 是否发生了替换
+   */
+  function clearAccountDirtyNotice() {
+    var box = document.getElementById('as-user-preview');
+    if (!box || box.innerHTML.indexOf('账号已改动') === -1) return false;
+    // _userPlan 在 showAccountDirty 里已被清空，不会自动重算；如实说明要点一下
+    box.innerHTML = '<div class="as-pv-unres">账号已改回与快照一致。' +
+                    '点「\uD83D\uDD04 刷新差异预览」重新计算差异。</div>';
+    return true;
   }
 
   function switchTopTab(tab) {
@@ -1973,10 +1995,7 @@
 
     var snapEl = document.getElementById('as-user-snap');
     if (snapEl) {
-      snapEl.innerHTML = [
-        snapshotLine('源', srcSnapshot),
-        snapshotLine('目标', tgtSnapshot)
-      ].join('\n');
+      renderSnapshotLines();
     }
 
     var execBtn = document.getElementById('as-user-exec');
@@ -2040,6 +2059,30 @@
     return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
   }
 
+  // 账号被改动后的框色：**中性灰，刻意不用任何彩色**。
+  // 本面板里"颜色 = 环境"（dev 蓝 / test 绿 / uat 橙 / prod 红），所以任何饱和色
+  // 都会被读成"这是某个环境的账号"。而且橙色已被 uat 占用，用它做警示正好会撞车。
+  // 需要吸引注意的部分由下方的红色提示块和置灰的执行按钮承担。
+  var PENDING_COLOR = '#8c8c8c';
+
+  /**
+   * 重画「源:」/「目标:」两行摘要。
+   *
+   * 单独抽出来是因为它有两种触发时机：整体重绘（refreshPanel），以及**用户
+   * 敲键盘改账号**（onAccountInputChanged）。只在重绘时才算的话，用户把账号
+   * 改掉后会看到"框里已经是另一个账号、摘要却毫无反应"，从而以为摘要显示的
+   * 就是框里那个账号 —— 而摘要显示的始终是已采集的快照。
+   */
+  function renderSnapshotLines() {
+    var snapEl = document.getElementById('as-user-snap');
+    if (!snapEl) return;
+    var dirtyRoles = accountInputDirty();
+    snapEl.innerHTML = [
+      snapshotLine('源', srcSnapshot, dirtyRoles.indexOf('源') !== -1),
+      snapshotLine('目标', tgtSnapshot, dirtyRoles.indexOf('目标') !== -1)
+    ].join('\n');
+  }
+
   /**
    * 把「这个快照来自哪个环境」可视化到对应输入框上。
    *
@@ -2047,6 +2090,12 @@
    * 只凭账号文字根本分不清源数据采自哪个环境 —— 这会直接导致改错环境的操作事故。
    * 颜色由 AuthPermMap.envColor(host) 决定：同一环境恒定同色，
    * dev/test/uat/prod 按命名约定取固定色，避免撞色。
+   *
+   * ⚠ 但前提是"框里的字 == 快照里的账号"。一旦用户改过输入框，这段文字就不再
+   * 属于任何快照，此时若还沿用快照的环境色取徽标，等于把"手输的账号"谎报成
+   * "采自某环境的账号" —— 现场已经出现过：框里是 cd-test，徽标却绿着 mdmtest-auth，
+   * 看的人会以为 cd-test 是 test 的账号，而这正是本工具最危险的错误归因。
+   * 所以脏了就撤掉环境色，改挂中性的"待采集"，环境归属交给下方摘要行表达。
    */
   function applyEnvStyle(inputId, badgeId, snap) {
     var input = document.getElementById(inputId);
@@ -2066,6 +2115,20 @@
     }
 
     var host = (snap.env && snap.env.host) || '';
+
+    if (String(input.value).trim() !== String(snap.account)) {
+      input.style.borderColor = PENDING_COLOR;
+      input.style.color = '';
+      input.style.fontWeight = '600';
+      badge.textContent = '\u26A0 待采集';
+      badge.style.color = PENDING_COLOR;
+      badge.style.borderColor = PENDING_COLOR;
+      badge.style.background = hexToRgba(PENDING_COLOR, 0.1);
+      badge.title = '框里的账号与已采集的快照不一致。已采集的是 ' + host +
+                    ' 的 ' + snap.account + '，点「采集」后这里的账号才会生效';
+      return;
+    }
+
     var color = AuthPermMap.envColor(host);
     input.style.borderColor = color;
     input.style.color = color;
@@ -2098,17 +2161,26 @@
     _restoredAt[which] = snap.capturedAt;
   }
 
-  function snapshotLine(role, snap) {
+  /**
+   * 「源:」/「目标:」摘要行的 HTML。
+   * @param {boolean} inputChanged 对应输入框是否已被改成别的账号。
+   *   为真时这行进的是"过期数据"状态 —— 快照本身没变（它确实是采集来的），
+   *   但已不再对应输入框里的账号，必须显式说出来。
+   */
+  function snapshotLine(role, snap, inputChanged) {
     if (!snap) return role + '：<span class="as-snap-warn">未采集</span>';
     var mins = Math.round((Date.now() - snap.capturedAt) / 60000);
     var stale = mins > 1440
       ? ' <span class="as-snap-warn">(采集于 ' + Math.round(mins / 60) + ' 小时前，建议重新采集)</span>'
       : '';
     var color = AuthPermMap.envColor(snap.env && snap.env.host);
+    var changed = inputChanged
+      ? '　<span class="as-snap-warn">\u26A0 输入框已改，此快照待重新采集</span>'
+      : '';
     return role + '：<b>' + escHtml(snap.account) + '</b> @ ' +
            '<span style="color:' + color + ';font-weight:600">' + escHtml(snap.env.host) + '</span>' +
            '　应用 ' + snap.appIdList.length + ' / 角色 ' + snap.roleIdList.length +
-           '　<span class="as-snap-ok">已采集</span>' + stale;
+           '　<span class="as-snap-ok">已采集</span>' + stale + changed;
   }
 
   // ==================== 面板 UI ====================
